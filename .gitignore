@@ -251,3 +251,7 @@ secrets.*
 /mlruns/
 .ipynb_checkpoints/
 .venv/
+
+*.part
+*.tmp
+notebooks/*.executed.ipynb
