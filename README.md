@@ -14,7 +14,7 @@ Observed associations can mislead decisions when treatment assignment and outcom
 4. Develop causal baselines and estimators; evaluate treatment-effect estimates against documented benchmark targets where available.
 5. Run robustness experiments and integrate a Phase 1 demo.
 
-This repository contains setup scaffolding only. No dataset has been downloaded, no IHDP analysis has been run, and no research results or model implementations are claimed.
+Phases 1–2 are implemented: source research, local acquisition, structural inspection, and a value-preserving loader. EDA (Phase 3) awaits approval; preprocessing and full quality assurance (Phases 4–5) remain pending. No causal models are implemented.
 
 ## Development setup
 
@@ -29,21 +29,21 @@ python -m pytest
 python -c "import causallens; print(causallens.__version__)"
 ```
 
-On Windows activate with `.venv\Scripts\activate`. Open the numbered notebooks with `jupyter lab`. They contain planning text only.
+On Windows activate with `.venv\Scripts\activate`. Open the numbered notebooks with `jupyter lab`. Only notebook 01 is implemented; notebooks 02–03 remain planning templates.
 
 ## Repository map
 
 - `data/raw`, `data/processed`: ignored local datasets; only directory markers are tracked.
-- `notebooks`: ordered inspection, EDA, and preprocessing-validation templates.
+- `notebooks`: executable initial inspection; EDA and preprocessing-validation remain templates.
 - `src/causallens`: importable package with reserved data, model, and evaluation modules.
-- `scripts`: acquisition and inspection entry points, currently explicit placeholders.
-- `tests`: package/scaffold smoke tests, not data-pipeline validation.
+- `scripts`: working acquisition and structural-inspection entry points.
+- `tests`: offline synthetic-fixture acquisition/loader tests plus optional local-benchmark integration checks.
 - `docs`: provenance, methodology, schema, handoff, and reference templates.
 - `reports`: pending EDA and quality reports; generated figures are ignored.
 
 ## Collaboration
 
-`main` is the stable integration branch. SindhuKaleeswaran owns dataset research, EDA, preprocessing, validation, and the data pipeline on `feat/data-pipeline`. The teammate owns causal methods, models, estimation, evaluation, and robustness work on `feat/causal-models`; account and invitation are pending verification.
+`main` is the stable integration branch. SindhuKaleeswaran owns dataset research, EDA, preprocessing, validation, and the data pipeline on `feat/data-pipeline`. The teammate (`leninathikam`, verified GitHub username; invitation sent) owns causal methods, models, estimation, evaluation, and robustness work on `feat/causal-models`.
 
 Use short descriptive commits and pull requests into `main`. Pull the latest `main` before starting work, keep PRs focused, run tests locally, and request the other developer's review. Branches are prepared; no branch protection is imposed. See GitHub issues for the initial work breakdown.
 
@@ -54,3 +54,15 @@ See [dataset provenance](docs/dataset_research.md), [dataset card](docs/dataset_
 ## License
 
 All rights reserved. No open-source license has been granted. See LICENSE. Dataset and third-party licensing must be reviewed separately.
+
+## Reproduce Phases 1–2
+
+Run from the repository root after installing the package:
+
+```bash
+python scripts/download_ihdp.py --expected-manifest docs/data_manifest.json
+python scripts/inspect_ihdp.py --replication 0
+python -m pytest
+```
+
+The downloader preserves existing raw files and checks ZIP CRC, schema and SHA-256. The checked-in manifest records this retrieval's hashes, not publisher-authenticated hashes. No alternate release is substituted. Raw files, partial downloads and row-level JSON stay ignored. See [Phase 1–2 handoff](docs/phase1_2_handoff.md) for environment, API and remaining limitations. CI activation is still blocked by OAuth workflow scope; a template is supplied under docs/ci.

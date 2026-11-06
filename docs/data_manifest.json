@@ -1,0 +1,159 @@
+{
+  "variant": "CFRNet-lineage IHDP-100",
+  "files": {
+    "train": {
+      "url": "https://www.fredjo.com/files/ihdp_npci_1-100.train.npz",
+      "final_url": "https://www.fredjo.com/files/ihdp_npci_1-100.train.npz",
+      "filename": "ihdp_npci_1-100.train.npz",
+      "bytes": 16129570,
+      "sha256": "750697c71b4f8d7a3aafff771b56a4ac4cd83ec649bf69afb04f8a5aee41a240",
+      "retrieved_at_utc": "2026-11-06T14:48:12.734384+00:00",
+      "etag": "\"6acff24b-f61e22\"",
+      "last_modified": "Wed, 14 Oct 2026 21:21:15 GMT",
+      "schema": {
+        "ate": {
+          "shape": [],
+          "dtype": "int64",
+          "nonfinite": 0
+        },
+        "mu1": {
+          "shape": [
+            672,
+            100
+          ],
+          "dtype": "float64",
+          "nonfinite": 0
+        },
+        "mu0": {
+          "shape": [
+            672,
+            100
+          ],
+          "dtype": "float64",
+          "nonfinite": 0
+        },
+        "yadd": {
+          "shape": [],
+          "dtype": "int64",
+          "nonfinite": 0
+        },
+        "yf": {
+          "shape": [
+            672,
+            100
+          ],
+          "dtype": "float64",
+          "nonfinite": 0
+        },
+        "ycf": {
+          "shape": [
+            672,
+            100
+          ],
+          "dtype": "float64",
+          "nonfinite": 0
+        },
+        "t": {
+          "shape": [
+            672,
+            100
+          ],
+          "dtype": "float64",
+          "nonfinite": 0
+        },
+        "x": {
+          "shape": [
+            672,
+            25,
+            100
+          ],
+          "dtype": "float64",
+          "nonfinite": 0
+        },
+        "ymul": {
+          "shape": [],
+          "dtype": "int64",
+          "nonfinite": 0
+        }
+      }
+    },
+    "test": {
+      "url": "https://www.fredjo.com/files/ihdp_npci_1-100.test.npz",
+      "final_url": "https://www.fredjo.com/files/ihdp_npci_1-100.test.npz",
+      "filename": "ihdp_npci_1-100.test.npz",
+      "bytes": 1801570,
+      "sha256": "a70a8acbcc4e8deb677cc9bf9e9dabeb17caaa37cdbb1d7ba06be7ffb929c41c",
+      "retrieved_at_utc": "2026-11-06T14:48:13.307414+00:00",
+      "etag": "\"6acff24c-1b7d62\"",
+      "last_modified": "Wed, 14 Oct 2026 21:21:16 GMT",
+      "schema": {
+        "ate": {
+          "shape": [],
+          "dtype": "int64",
+          "nonfinite": 0
+        },
+        "mu1": {
+          "shape": [
+            75,
+            100
+          ],
+          "dtype": "float64",
+          "nonfinite": 0
+        },
+        "mu0": {
+          "shape": [
+            75,
+            100
+          ],
+          "dtype": "float64",
+          "nonfinite": 0
+        },
+        "yadd": {
+          "shape": [],
+          "dtype": "int64",
+          "nonfinite": 0
+        },
+        "yf": {
+          "shape": [
+            75,
+            100
+          ],
+          "dtype": "float64",
+          "nonfinite": 0
+        },
+        "ycf": {
+          "shape": [
+            75,
+            100
+          ],
+          "dtype": "float64",
+          "nonfinite": 0
+        },
+        "t": {
+          "shape": [
+            75,
+            100
+          ],
+          "dtype": "float64",
+          "nonfinite": 0
+        },
+        "x": {
+          "shape": [
+            75,
+            25,
+            100
+          ],
+          "dtype": "float64",
+          "nonfinite": 0
+        },
+        "ymul": {
+          "shape": [],
+          "dtype": "int64",
+          "nonfinite": 0
+        }
+      }
+    }
+  },
+  "checksum_authority": "locally observed; no publisher hash located",
+  "redistribution": "unverified; local research only, do not upload archives"
+}
