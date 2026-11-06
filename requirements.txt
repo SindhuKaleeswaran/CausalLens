@@ -1,0 +1,6 @@
+# Package dependencies are defined in pyproject.toml.
+-e .
+pytest>=8,<10
+matplotlib>=3.8,<4
+seaborn>=0.13,<1
+jupyterlab>=4,<5

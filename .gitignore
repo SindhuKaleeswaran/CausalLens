@@ -218,3 +218,36 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# CausalLens: secrets and local data
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials*.json
+secrets.*
+/data/raw/*
+!/data/raw/.gitkeep
+/data/processed/*
+!/data/processed/.gitkeep
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.gz
+*.npz
+*.npy
+*.parquet
+*.csv
+*.pkl
+*.pickle
+*.joblib
+/reports/figures/*
+!/reports/figures/.gitkeep
+/artifacts/
+/outputs/
+/runs/
+/mlruns/
+.ipynb_checkpoints/
+.venv/
