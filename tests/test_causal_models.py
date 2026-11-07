@@ -116,15 +116,51 @@ def test_ipw_estimator(synthetic_data):
 
 def test_doubly_robust_estimator(synthetic_data):
     X, T, Y, tau_true = synthetic_data
-    model = DoublyRobustEstimator()
+    model = DoublyRobustEstimator(cv=5)
     model.fit(X, T, Y)
 
+    assert model.is_cross_fitted_ is True
     ate_est = model.estimate_ate()
     assert ate_est == pytest.approx(tau_true, abs=0.5)
 
     low, high = model.ate_confidence_interval(alpha=0.05)
     assert low < tau_true < high
     assert "double_robustness" in model.assumptions
+
+
+def test_doubly_robust_small_sample_fallback():
+    X = np.array([[1.0], [2.0], [3.0], [4.0]])
+    T = np.array([0.0, 0.0, 1.0, 1.0])
+    Y = np.array([1.0, 2.0, 5.0, 6.0])
+    # cv=5 cannot run on 4 samples with 2 treated; should fall back cleanly
+    model = DoublyRobustEstimator(cv=5)
+    model.fit(X, T, Y)
+    assert model.is_cross_fitted_ is False
+    assert model.estimate_ate() > 0
+
+
+def test_null_treatment_effect_scenario():
+    rng = np.random.RandomState(42)
+    n = 200
+    X = rng.normal(size=(n, 3))
+    T = rng.binomial(1, 0.5, size=n).astype(float)
+    # True tau = 0
+    Y = 2.0 * X[:, 0] + rng.normal(scale=0.1, size=n)
+
+    for est in [SLearner(), TLearner(), XLearner(), DoublyRobustEstimator()]:
+        est.fit(X, T, Y)
+        assert abs(est.estimate_ate(X)) < 0.25
+
+
+def test_ipw_overlap_diagnostics(synthetic_data):
+    X, T, Y, _ = synthetic_data
+    model = IPWEstimator(clip_range=(0.02, 0.98))
+    model.fit(X, T, Y)
+    diag = model.overlap_diagnostics_
+    assert diag is not None
+    assert "common_support_range" in diag
+    assert "fraction_clipped" in diag
+    assert diag["effective_sample_size"] > 0
 
 
 def test_custom_base_estimators(synthetic_data):

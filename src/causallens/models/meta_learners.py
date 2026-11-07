@@ -21,8 +21,15 @@ class SLearner(BaseCausalEstimator):
     Individual treatment effect is estimated as:
         tau_hat(x) = mu(x, 1) - mu(x, 0)
 
-    Caveat: Regularization or feature selection may penalize or overlook
-    the treatment indicator T when X has many dimensions, shrinking tau towards 0.
+    Caveat & Structural Limitation:
+    When a linear base estimator (such as default RidgeCV) is used without explicit
+    interaction terms [X, T], the predicted effect tau_hat(x) = mu(x, 1) - mu(x, 0)
+    is mathematically CONSTANT across all units (tau_hat = beta_T).
+    Consequently, linear S-Learners cannot capture treatment effect heterogeneity,
+    explaining elevated PEHE against benchmark ground-truth targets. Furthermore,
+    L2 regularization penalizes beta_T alongside all covariate coefficients, causing
+    effect shrinkage. Non-linear base estimators (e.g. tree ensembles) or explicit
+    interaction expansions are required for S-Learners to model heterogeneity.
     """
 
     def __init__(self, base_estimator: Optional[Any] = None) -> None:

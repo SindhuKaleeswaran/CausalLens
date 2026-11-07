@@ -2,18 +2,23 @@
 
 All estimators operate under the potential outcomes framework (Neyman-Rubin model)
 and require explicit statements of causal identification assumptions:
-1. Positivity (Overlap): 0 < P(T=1 | X=x) < 1 for all x.
+1. Positivity (Overlap): 0 < P(T=1 | X=x) < 1 for all x in covariate support.
 2. Unconfoundedness (Conditional Ignorability): (Y(0), Y(1)) _|_ T | X.
 3. Stable Unit Treatment Value Assumption (SUTVA): No interference between units
-   and no hidden variations of treatments.
+   and no hidden variations of treatment.
 """
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional, Tuple, Union
 import numpy as np
+from sklearn.base import BaseEstimator
 
 
-class BaseCausalEstimator(ABC):
-    """Abstract base class for all CausalLens treatment-effect estimators."""
+class BaseCausalEstimator(BaseEstimator, ABC):
+    """Abstract base class for all CausalLens treatment-effect estimators.
+
+    Inherits from scikit-learn's BaseEstimator to provide native get_params/set_params
+    and clean cloning capabilities.
+    """
 
     def __init__(self) -> None:
         self.fitted_: bool = False
@@ -101,21 +106,7 @@ class BaseCausalEstimator(ABC):
 
     @abstractmethod
     def fit(self, X: Any, T: Any, Y: Any) -> "BaseCausalEstimator":
-        """Fit estimator to observational data (X, T, Y).
-
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            Pre-treatment covariates.
-        T : array-like of shape (n_samples,)
-            Binary treatment indicator (0 for control, 1 for treated).
-        Y : array-like of shape (n_samples,)
-            Realized outcome.
-
-        Returns
-        -------
-        self : object
-        """
+        """Fit estimator to observational data (X, T, Y)."""
         pass
 
     @abstractmethod
@@ -123,16 +114,6 @@ class BaseCausalEstimator(ABC):
         """Estimate Individual / Conditional Average Treatment Effect (CATE/ITE).
 
         tau(x) = E[Y(1) - Y(0) | X = x]
-
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            Covariates for evaluation units.
-
-        Returns
-        -------
-        tau_hat : np.ndarray of shape (n_samples,)
-            Estimated individual treatment effects.
         """
         pass
 
@@ -143,15 +124,6 @@ class BaseCausalEstimator(ABC):
 
         If X is None, returns the estimated ATE over the training sample.
         If X is provided, returns the sample average of estimated ITEs over X.
-
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features), optional
-
-        Returns
-        -------
-        ate_hat : float
-            Estimated average treatment effect.
         """
         self._check_is_fitted()
         if X is None:
@@ -163,22 +135,10 @@ class BaseCausalEstimator(ABC):
         return float(np.mean(ite))
 
     def predict_potential_outcomes(self, X: Any) -> Tuple[np.ndarray, np.ndarray]:
-        """Predict counterfactual potential outcomes (Y(0), Y(1)) for given covariates.
-
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-
-        Returns
-        -------
-        y0_pred, y1_pred : tuple of np.ndarray each of shape (n_samples,)
-            Estimated expected potential outcomes under control and treatment.
-        """
+        """Predict counterfactual potential outcomes (Y(0), Y(1)) for given covariates."""
         self._check_is_fitted()
         X_arr, _, _ = self._validate_inputs(X)
         ite = self.estimate_ite(X_arr)
-        # Default fallback: if specific potential outcome methods are not overridden,
-        # returns (0, ite) centered representation.
         return np.zeros_like(ite), ite
 
     def summary(self) -> Dict[str, Any]:
