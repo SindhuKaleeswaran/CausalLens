@@ -1,0 +1,74 @@
+[
+  {
+    "model": "T-Learner",
+    "n_successful": 100,
+    "pehe_mean": 2.26518,
+    "pehe_std": 3.9969316921757865,
+    "ate_error_mean": 0.24651499999999998,
+    "ate_error_std": 0.38033108234401475,
+    "policy_risk_mean": 0.077118,
+    "avg_runtime_sec": 0.0024609999999999996,
+    "pehe_summary": "2.265 +/- 3.997",
+    "ate_error_summary": "0.247 +/- 0.380"
+  },
+  {
+    "model": "X-Learner",
+    "n_successful": 100,
+    "pehe_mean": 2.326912,
+    "pehe_std": 3.993773460626433,
+    "ate_error_mean": 0.271545,
+    "ate_error_std": 0.3940435515013511,
+    "policy_risk_mean": 0.08213200000000001,
+    "avg_runtime_sec": 0.014399,
+    "pehe_summary": "2.327 +/- 3.994",
+    "ate_error_summary": "0.272 +/- 0.394"
+  },
+  {
+    "model": "IPW + Weighted Reg",
+    "n_successful": 100,
+    "pehe_mean": 2.347533,
+    "pehe_std": 3.943861210909963,
+    "ate_error_mean": 0.25549099999999997,
+    "ate_error_std": 0.3475774963641747,
+    "policy_risk_mean": 0.08128099999999999,
+    "avg_runtime_sec": 0.012379,
+    "pehe_summary": "2.348 +/- 3.944",
+    "ate_error_summary": "0.255 +/- 0.348"
+  },
+  {
+    "model": "Doubly Robust (AIPW)",
+    "n_successful": 100,
+    "pehe_mean": 2.460197,
+    "pehe_std": 3.9175160902109414,
+    "ate_error_mean": 0.27589400000000003,
+    "ate_error_std": 0.32476921528365277,
+    "policy_risk_mean": 0.091452,
+    "avg_runtime_sec": 0.06926,
+    "pehe_summary": "2.460 +/- 3.918",
+    "ate_error_summary": "0.276 +/- 0.325"
+  },
+  {
+    "model": "Naive (Unadjusted)",
+    "n_successful": 100,
+    "pehe_mean": 5.7116880000000005,
+    "pehe_std": 8.94787959851671,
+    "ate_error_mean": 0.718267,
+    "ate_error_std": 1.6707277516738421,
+    "policy_risk_mean": 1.262956,
+    "avg_runtime_sec": 0.00021799999999999999,
+    "pehe_summary": "5.712 +/- 8.948",
+    "ate_error_summary": "0.718 +/- 1.671"
+  },
+  {
+    "model": "S-Learner",
+    "n_successful": 100,
+    "pehe_mean": 5.7348799999999995,
+    "pehe_std": 8.854745974580155,
+    "ate_error_mean": 0.7973359999999999,
+    "ate_error_std": 1.1315550155588385,
+    "policy_risk_mean": 1.276817,
+    "avg_runtime_sec": 0.002045,
+    "pehe_summary": "5.735 +/- 8.855",
+    "ate_error_summary": "0.797 +/- 1.132"
+  }
+]

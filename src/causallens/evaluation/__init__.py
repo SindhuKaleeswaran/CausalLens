@@ -1,10 +1,11 @@
 """CausalLens evaluation package.
 
 Provides ground-truth benchmark metrics, multi-replication experiment runners,
-and refutation tests for causal model validation:
+and scientific refutation tests for causal model validation:
 - pehe_score, ate_error, policy_value, policy_risk
 - evaluate_replication, run_ihdp_benchmark
-- refute_placebo_treatment, refute_random_confounder, bootstrap_ate_confidence_interval
+- refute_placebo_treatment, refute_irrelevant_covariate, refute_subsample_stability
+- compute_estimator_disagreement, sensitivity_unobserved_confounding, bootstrap_ate_confidence_interval
 """
 from causallens.evaluation.benchmarks import (
     evaluate_replication,
@@ -20,8 +21,11 @@ from causallens.evaluation.metrics import (
 )
 from causallens.evaluation.robustness import (
     bootstrap_ate_confidence_interval,
+    compute_estimator_disagreement,
+    refute_irrelevant_covariate,
     refute_placebo_treatment,
-    refute_random_confounder,
+    refute_subsample_stability,
+    sensitivity_unobserved_confounding,
 )
 
 __all__ = [
@@ -34,6 +38,9 @@ __all__ = [
     "run_ihdp_benchmark",
     "get_default_models",
     "refute_placebo_treatment",
-    "refute_random_confounder",
+    "refute_irrelevant_covariate",
+    "refute_subsample_stability",
+    "compute_estimator_disagreement",
+    "sensitivity_unobserved_confounding",
     "bootstrap_ate_confidence_interval",
 ]
