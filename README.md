@@ -14,7 +14,7 @@ Observed associations can mislead decisions when treatment assignment and outcom
 4. Develop causal baselines and estimators; evaluate treatment-effect estimates against documented benchmark targets where available.
 5. Run robustness experiments and integrate a Phase 1 demo.
 
-Phases 1–2 are implemented: source research, local acquisition, structural inspection, and a value-preserving loader. Training-only EDA (Phase 3) is complete; preprocessing and full quality assurance (Phases 4–5) remain pending. No causal models are implemented.
+Phases 1–2 are implemented: source research, local acquisition, structural inspection, and a value-preserving loader. Training-only EDA (Phase 3) is complete; minimal optional preprocessing (Phase 4) is implemented locally; full quality assurance (Phase 5) remains pending. No causal models are implemented.
 
 ## Development setup
 
@@ -29,7 +29,7 @@ python -m pytest
 python -c "import causallens; print(causallens.__version__)"
 ```
 
-On Windows activate with `.venv\Scripts\activate`. Open the numbered notebooks with `jupyter lab`. Notebooks 01–02 are implemented; notebook 03 remains a planning template.
+On Windows activate with `.venv\Scripts\activate`. Open the numbered notebooks with `jupyter lab`. Notebooks 01–03 are executable.
 
 ## Repository map
 
@@ -67,4 +67,6 @@ python -m pytest
 
 The downloader preserves existing raw files and checks ZIP CRC, schema and SHA-256. The checked-in manifest records this retrieval's hashes, not publisher-authenticated hashes. No alternate release is substituted. Raw files, partial downloads and row-level JSON stay ignored. See [Phase 1–2 handoff](docs/phase1_2_handoff.md) for environment, API and remaining limitations. CI activation is still blocked by OAuth workflow scope; a template is supplied under docs/ci.
 
-Run Phase 3 with `python scripts/eda_ihdp.py`; see reports/eda_summary.md. Phase 4 is awaiting explicit approval.
+Run Phase 3 with `python scripts/eda_ihdp.py`; see reports/eda_summary.md. Phase 4 is implemented locally; see docs/preprocessing_methodology.md.
+
+Optional preprocessing: `train, test = load_preprocessed_ihdp(0, standardize=False)` from `causallens.data.preprocess`. Change the flag to True to standardize x01–x06 using training-only statistics. Both modes return X/T/Y dictionaries.
