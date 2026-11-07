@@ -72,3 +72,29 @@ def test_wrapper_keeps_replication_and_split_state_isolated(monkeypatch):
     b=load_preprocessed_ihdp(3,standardize=True)
     assert calls==[(0,'train'),(0,'test'),(3,'train'),(3,'test')]
     for x,y in zip(a,b):np.testing.assert_allclose(x['X'],y['X'])
+
+
+@pytest.mark.parametrize('value', [1, 0, 'yes', None])
+def test_mutated_configuration_must_remain_boolean(value):
+    p = IHDPPreprocessor().fit(observed())
+    p.standardize = value
+    with pytest.raises(ValueError):
+        p.transform(observed())
+    with pytest.raises(ValueError):
+        p.fit(observed())
+    p.standardize = False
+    with pytest.raises(ValueError, match='Fit'):
+        p.transform(observed())
+
+
+@pytest.mark.parametrize('problem', ['features', 'alignment', 'encoding', 'treatment', 'extra', 'inf'])
+def test_invalid_observed_inputs(problem):
+    d = observed()
+    if problem == 'features': d['X'] = d['X'][:, :24]
+    if problem == 'alignment': d['Y'] = d['Y'][:-1]
+    if problem == 'encoding': d['X'][0, 13] = 0
+    if problem == 'treatment': d['T'][0] = 2
+    if problem == 'extra': d['unknown'] = 1
+    if problem == 'inf': d['X'][0, 0] = np.inf
+    with pytest.raises(ValueError):
+        IHDPPreprocessor().fit(d)

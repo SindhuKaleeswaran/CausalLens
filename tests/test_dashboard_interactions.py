@@ -17,6 +17,38 @@ from streamlit.testing.v1 import AppTest
 APP_PATH = str(Path(__file__).resolve().parents[1] / "app.py")
 
 
+@pytest.fixture(autouse=True)
+def synthetic_dashboard(monkeypatch):
+    """Artificial observed/oracle fixtures; never fall back to private archives."""
+    import numpy as np
+    import streamlit as st
+    from causallens.data import loader
+    st.cache_data.clear()
+    st.cache_resource.clear()
+    def observed(replication=0, split="train", data_dir=None):
+        rng = np.random.default_rng(1000 + replication + (100 if split == "test" else 0))
+        n = 120 if split == "train" else 45
+        X = rng.normal(size=(n, 25))
+        X[:, 6:] = rng.integers(0, 2, size=(n, 19))
+        X[:, 13] += 1
+        T = np.arange(n) % 2
+        Y = X[:, 0] + T * (2 + X[:, 1]) + rng.normal(size=n)
+        return dict(X=X, T=T, Y=Y)
+    def truth(replication=0, split="test", data_dir=None):
+        X = observed(replication, split)["X"]
+        mu0 = X[:, 0]
+        mu1 = mu0 + 2 + X[:, 1]
+        return dict(mu0=mu0, mu1=mu1, tau=mu1-mu0, ycf=mu0)
+    monkeypatch.setattr(loader, "load_ihdp", observed)
+    monkeypatch.setattr(loader, "load_ihdp_truth", truth)
+    import causallens.evaluation.benchmarks as benchmarks
+    monkeypatch.setattr(benchmarks, "load_ihdp", observed)
+    monkeypatch.setattr(benchmarks, "load_ihdp_truth", truth)
+    yield
+    st.cache_data.clear()
+    st.cache_resource.clear()
+
+
 def test_dashboard_initial_render():
     """Verify clean initial render with zero exceptions across all 6 tabs."""
     at = AppTest.from_file(APP_PATH, default_timeout=35).run()
@@ -67,21 +99,19 @@ def test_dashboard_switch_replications():
     assert len(at.exception) == 0
 
 
-def test_dashboard_counterfactual_presets_and_sliders():
-    """Verify applying all three vulnerability presets and moving sliders."""
+def test_dashboard_observed_profile_and_hypothetical_edits():
     at = AppTest.from_file(APP_PATH, default_timeout=35).run()
     assert len(at.exception) == 0
-
-    # Test presets
-    presets = ["High Vulnerability", "Low Vulnerability", "Default (Mean Profile)"]
-    for preset in presets:
-        at.radio[0].set_value(preset).run()
-        assert len(at.exception) == 0, f"Exception applying {preset}: {[e.value for e in at.exception]}"
-
-    # Move sliders
-    if len(at.slider) > 1:
-        at.slider[1].set_value(1.5).run()
-        assert len(at.exception) == 0
+    at.number_input(key="profile_index").set_value(3).run()
+    assert len(at.exception) == 0
+    at.checkbox(key="modify_profile").check().run()
+    at.number_input(key="profile_0_3_0").set_value(1.5).run()
+    assert len(at.exception) == 0
+    assert any("unsupported combinations" in w.value for w in at.warning)
+    text = " ".join(m.value for m in at.markdown)
+    assert "Cross-Split Difference" in text
+    assert "Confounding Bias Gap" not in text
+    assert "not an estimate of confounding bias" in text
 
 
 def test_dashboard_robustness_actions_and_caching():
@@ -110,7 +140,7 @@ def test_dashboard_export_controls():
     assert len(at.exception) == 0
 
     # At least Model Evaluation CSV export and Reliability Dossier JSON export
-    assert len(at.download_button) >= 2
-    labels = [btn.label for btn in at.download_button]
+    assert len(at.get("download_button")) >= 2
+    labels = [btn.label for btn in at.get("download_button")]
     assert "Export Model Evaluation (CSV)" in labels
     assert "Export Reliability Dossier (JSON)" in labels

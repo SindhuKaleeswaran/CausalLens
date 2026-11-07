@@ -1,15 +1,12 @@
 # Enabling CI
 
-The prepared workflow is stored as `tests.yml.example` because the current GitHub OAuth authorization cannot create workflow files (missing workflow scope). No Actions workflow is active yet.
+Actions is enabled at repository level, but `.github/workflows` is absent.
+The current GitHub OAuth token has `repo`, `read:org`, and `gist`, not `workflow`.
+The reviewed template now installs EDA/dashboard/test dependencies and tests
+Python 3.11 and 3.13 with artificial offline fixtures. Original-archive tests skip
+explicitly when data is absent. Local execution evidence is in the audit report.
 
-A repository owner can use GitHub's web editor to create `.github/workflows/tests.yml` with the contents of this template and commit it to `main`, or authorize a development environment with workflow permission and run:
-
-```bash
-mkdir -p .github/workflows
-cp docs/ci/tests.yml.example .github/workflows/tests.yml
-git add .github/workflows/tests.yml
-git commit -m "Enable Python test workflow"
-git push origin main
-```
-
-The workflow runs package smoke tests on Python 3.11, without downloading benchmark data. GitHub Actions has not yet executed these checks.
+A repository owner can create `.github/workflows/tests.yml` using the contents of
+[tests.yml.example](tests.yml.example), on a reviewed branch via the GitHub web
+editor or a credential with workflow scope. Do not commit directly to main.
+No workflow activation or hosted passing run is claimed by this audit.

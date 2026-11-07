@@ -41,10 +41,17 @@ processor = IHDPPreprocessor(standardize=True)
 
 The low-level class cannot infer provenance from bare arrays: callers must supply training rows from the correct replication. The convenience loader enforces official split selection. Ground-truth evaluation remains separate via loader.load_ihdp_truth; no preprocessing code invokes it.
 
-## Validation evidence
+## Historical Phase 4 validation evidence
 
 46 tests passed in the existing Python 3.13.5 environment, including exact raw-mode preservation, independent copies, analytic scaling expectations, shifted-test behavior, binary preservation, T/Y independence, oracle rejection, missing-value rejection, constant columns, reproducibility and per-replication orchestration.
 
 Notebook 03 demonstrates raw versus standardized summaries and explicitly checks parameters against training-only statistics. It perturbs a copy of test features to verify fitted parameters remain fixed. It also exercises both modes on real replications 0 and 1. All four code cells executed successfully. This is Phase 4 implementation validation; full Phase 5 scientific QA across all replications remains pending.
 
 The original archive hashes and upstream preprocessing limitations remain documented in the data manifest and dataset research. Additional train-only scaling cannot undo upstream transformations. No estimator benefit is claimed or chosen using test outcomes.
+
+## Pre-Phase-5 integration clarification
+
+Both `evaluate_replication` and the dashboard call the value-preserving raw loader.
+No benchmark configuration has been changed to standardize features. Configuration
+must remain a Python bool even after construction; invalid refits invalidate prior fitted state.
+Current regression results and limitations are recorded in `pre_phase5_audit.md`.

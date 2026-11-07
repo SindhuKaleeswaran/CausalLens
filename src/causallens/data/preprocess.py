@@ -42,6 +42,8 @@ class IHDPPreprocessor:
     def fit(self, train):
         # A failed refit must not leave an older usable fitted state.
         self._fitted = False
+        if not isinstance(self.standardize, bool):
+            raise ValueError("standardize must be a bool")
         data = _observed(train)
         self._standardize = self.standardize
         self.scaler_ = StandardScaler().fit(data['X'][:, :6]) if self._standardize else None
@@ -51,7 +53,7 @@ class IHDPPreprocessor:
     def transform(self, observed):
         if not getattr(self, '_fitted', False):
             raise ValueError('Fit on training data before transform')
-        if self.standardize != self._standardize:
+        if not isinstance(self.standardize, bool) or self.standardize != self._standardize:
             raise ValueError('Configuration changed after fit; refit on training data')
         out = _observed(observed)
         if self.scaler_ is not None:
