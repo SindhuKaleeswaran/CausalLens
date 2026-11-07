@@ -83,5 +83,5 @@ def render_report(result):
               "This is a fingerprint check, not proof of patient identity separation: the release has no verified patient ID or row mapping. The original train/test files remain separate and unchanged.",
               "", "Hashes are locally recorded baselines, not publisher-authenticated hashes. Raw data and full JSON inspection stay ignored locally; this tracked report contains only aggregate checks. Standalone redistribution terms remain unresolved; no archives are committed.",
               "", "## Scope and next step", "",
-              "No imputation, scaling, recoding, feature deletion, resplitting, overlap/imbalance EDA or model fitting occurred. Ground-truth arrays are accessed explicitly for schema/semantics inspection only, never to tune a model. Phase 3 requires user approval."]
+              "No imputation, scaling, recoding, feature deletion, resplitting, overlap/imbalance EDA or model fitting occurred. Ground-truth arrays are accessed explicitly for schema/semantics inspection only, never to tune a model. Phases 3 and 4 are implemented separately; Phase 5 full QA remains pending."]
     return "\n".join(lines)+"\n"

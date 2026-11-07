@@ -13,6 +13,7 @@ import seaborn as sns
 import streamlit as st
 import streamlit.components.v1 as components
 
+from causallens.data.eda import balance_table
 from causallens.data.loader import load_ihdp, load_ihdp_truth
 from causallens.evaluation.benchmarks import evaluate_replication, get_default_models
 from causallens.evaluation.robustness import (
@@ -705,7 +706,7 @@ with st.sidebar:
     st.caption(
         "**Dataset**: Infant Health and Development Program (IHDP-100)\n\n"
         "**Target Parameter**: Average Treatment Effect (ATE) and Individual Treatment Effect (ITE/CATE)\n\n"
-        "**Identification**: Unconfoundedness conditional on 25 baseline covariates."
+        "**Identification assumption**: Unconfoundedness conditional on 25 baseline covariates; not established by diagnostics."
     )
     st.markdown("<hr style='border-color: #1E293B; margin: 1.25rem 0;'>", unsafe_allow_html=True)
     st.caption("DataNova Global Data-thon 2026\nTrack: DN-OP-01 (Open Innovation)")
@@ -737,7 +738,7 @@ y_t1 = train_data["Y"][train_data["T"] == 1]
 y_t0 = train_data["Y"][train_data["T"] == 0]
 naive_diff = float(np.mean(y_t1) - np.mean(y_t0))
 oracle_ate = float(np.mean(truth_data["tau"]))
-confounding_gap = naive_diff - oracle_ate
+cross_split_difference = naive_diff - oracle_ate
 
 # -----------------------------------------------------------------------------
 # Header Context Area
@@ -768,19 +769,19 @@ st.markdown(f"""
 st.markdown(f"""
 <div class="kpi-ribbon">
     <div class="kpi-segment">
-        <div class="kpi-title">Observed Association</div>
+        <div class="kpi-title">Training Association</div>
         <div class="kpi-number">{naive_diff:.2f}</div>
         <div class="kpi-desc">Naive E[Y|T=1] - E[Y|T=0]</div>
     </div>
     <div class="kpi-segment">
-        <div class="kpi-title">Oracle Ground-Truth ATE</div>
+        <div class="kpi-title">Test Oracle ATE</div>
         <div class="kpi-number">{oracle_ate:.2f}</div>
-        <div class="kpi-desc">True Population E[Y(1) - Y(0)]</div>
+        <div class="kpi-desc">Test mean(mu1 - mu0)</div>
     </div>
     <div class="kpi-segment">
-        <div class="kpi-title">Confounding Bias Gap</div>
-        <div class="kpi-number {'delta-warn' if abs(confounding_gap) > 0.2 else 'delta-teal'}">{confounding_gap:+.2f}</div>
-        <div class="kpi-desc">Unadjusted baseline selection bias</div>
+        <div class="kpi-title">Cross-Split Difference</div>
+        <div class="kpi-number {'delta-warn' if abs(cross_split_difference) > 0.2 else 'delta-teal'}">{cross_split_difference:+.2f}</div>
+        <div class="kpi-desc">Train association minus test oracle; descriptive only</div>
     </div>
     <div class="kpi-segment">
         <div class="kpi-title">Treatment Allocation</div>
@@ -819,16 +820,9 @@ with tabs[0]:
     col_c1, col_c2 = st.columns([1, 1], gap="medium")
 
     # Covariate Balance Calculation
-    features = [f"x{i:02d}" for i in range(1, 26)]
-    smds: List[float] = []
-    for j in range(25):
-        xt = train_data["X"][train_data["T"] == 1, j]
-        xc = train_data["X"][train_data["T"] == 0, j]
-        pooled_sd = np.sqrt((np.var(xt, ddof=1) + np.var(xc, ddof=1)) / 2.0)
-        smd_val = float((np.mean(xt) - np.mean(xc)) / (pooled_sd if pooled_sd > 1e-8 else 1.0))
-        smds.append(smd_val)
-
-    df_smd = pd.DataFrame({"Feature": features, "SMD": smds})
+    df_smd = balance_table(train_data["X"], train_data["T"])[["feature", "smd"]].rename(
+        columns={"feature": "Feature", "smd": "SMD"}
+    )
     df_smd["AbsSMD"] = df_smd["SMD"].abs()
     df_smd_sorted = df_smd.sort_values(by="AbsSMD", ascending=False).reset_index(drop=True)
     top_smd = df_smd_sorted.head(12)
@@ -892,7 +886,7 @@ with tabs[0]:
     st.markdown(f"""
     <div class="research-notice">
         <strong>Methodological Finding</strong>: <strong>{n_imbalanced} of 25</strong> baseline covariates exhibit substantial imbalance (|SMD| > 0.10), with <strong>{n_severe}</strong> covariates exceeding severe imbalance (|SMD| > 0.25). 
-        The observational association ({naive_diff:.2f}) overstates the true causal effect ({oracle_ate:.2f}) by {confounding_gap:+.2f} units because treated subjects possess favorable pre-intervention prognostic factors. Adjusting for confounding through causal architectures is required for valid inference.
+        The training association ({naive_diff:.2f}) and test oracle mean effect ({oracle_ate:.2f}) describe different samples. Their difference ({cross_split_difference:+.2f}) is not an estimate of confounding bias. Imbalance and empirical overlap are descriptive diagnostics, not proof of confounding or population positivity.
     </div>
     """, unsafe_allow_html=True)
 
@@ -1054,38 +1048,21 @@ with tabs[2]:
     with col_sim_ctl:
         st.markdown('<div class="section-card-title">Subject Covariate Profile Inputs</div>', unsafe_allow_html=True)
 
-        preset_choice = st.radio(
-            "Quick Profile Presets",
-            options=["Default (Mean Profile)", "High Vulnerability", "Low Vulnerability"],
-            horizontal=True,
-            label_visibility="collapsed",
+        profile_index = st.number_input(
+            "Observed training row", min_value=0, max_value=n_train - 1, value=0, step=1,
+            key="profile_index",
         )
-
-        if preset_choice == "High Vulnerability":
-            def_x01, def_x02, def_x03, def_x04, def_x06 = -1.2, -1.0, -0.8, -0.5, -1.5
-        elif preset_choice == "Low Vulnerability":
-            def_x01, def_x02, def_x03, def_x04, def_x06 = 1.0, 0.8, 0.7, 0.6, 1.2
-        else:
-            def_x01, def_x02, def_x03, def_x04, def_x06 = 0.0, 0.2, -0.1, 0.5, -0.3
-
-        col_s1, col_s2 = st.columns(2)
-        with col_s1:
-            x01 = st.slider("x01 (Birth weight std score)", -3.0, 3.0, def_x01, 0.1)
-            x02 = st.slider("x02 (Neonatal health measure)", -3.0, 3.0, def_x02, 0.1)
-            x03 = st.slider("x03 (Gestational age index)", -3.0, 3.0, def_x03, 0.1)
-        with col_s2:
-            x04 = st.slider("x04 (Clinical continuous score)", -2.0, 3.0, def_x04, 0.1)
-            x06 = st.slider("x06 (Socioeconomic index)", -3.0, 3.0, def_x06, 0.1)
-            x14 = st.selectbox("x14 (Demographic factor)", options=[1.0, 2.0], index=0)
-
-        # Assemble feature vector
-        sample_vec = np.zeros(25)
-        sample_vec[0] = x01
-        sample_vec[1] = x02
-        sample_vec[2] = x03
-        sample_vec[3] = x04
-        sample_vec[5] = x06
-        sample_vec[13] = x14
+        sample_vec = train_data["X"][int(profile_index)].copy()
+        st.caption("Baseline: a real observed training profile. Generic feature identifiers are used because clinical mappings are unverified.")
+        modify_profile = st.checkbox("Modify numeric features hypothetically", key="modify_profile")
+        if modify_profile:
+            for j in range(6):
+                sample_vec[j] = st.number_input(
+                    f"x{j+1:02d} (archived scale)", value=float(sample_vec[j]),
+                    key=f"profile_{rep_idx}_{profile_index}_{j}",
+                )
+            st.warning("Hypothetical edits may create unsupported combinations, even within observed marginal ranges. Predictions are illustrative; feature edits are not causal interventions.")
+        st.caption("All unedited features retain their observed values, including x14's original encoding.")
         sample_vec_2d = sample_vec.reshape(1, -1)
 
     with col_sim_view:
@@ -1132,7 +1109,7 @@ with tabs[3]:
     st.markdown(
         '<div class="section-description">'
         'Intervention response is rarely uniform. Segmenting the held-out test cohort by predicted treatment effect '
-        'identifies the patient characteristics associated with maximal therapeutic gain.'
+        'summarizes model-predicted heterogeneity in simulated outcomes; it does not demonstrate medical benefit.'
         '</div>',
         unsafe_allow_html=True,
     )
@@ -1181,18 +1158,11 @@ with tabs[3]:
         with col_h2:
             st.markdown('<div class="section-card-title">Mean Covariate Profile by Benefit Tier</div>', unsafe_allow_html=True)
             mean_chars = df_sub.groupby("Benefit_Tier", observed=False)[["x01", "x02", "x04", "x06"]].mean()
-            mean_chars = mean_chars.rename(columns={
-                "x01": "Birth Weight (x01)",
-                "x02": "Neonatal (x02)",
-                "x04": "Clinical (x04)",
-                "x06": "SES Index (x06)",
-            })
             st.dataframe(mean_chars.style.format("{:.2f}").highlight_min(axis=0, color="#FEF3C7"), use_container_width=True)
 
             st.caption(
-                "Subjects in the **High Gain** tier systematically present lower initial birth weight (x01) and "
-                "lower neonatal health scores (x02), indicating that intensive intervention achieves greatest marginal benefit "
-                "among clinically vulnerable subgroups."
+                "These groups summarize model predictions on the test covariates. Differences do not establish "
+                "clinical feature meanings, subgroup effectiveness, or causal effects of changing a feature."
             )
 
 # =============================================================================
@@ -1349,7 +1319,7 @@ with tabs[5]:
         supp_win = ipw_diagnostics.get("common_support_range", (0.0, 1.0))
 
         badge_ov = "badge-pass" if f_clip < 0.05 else "badge-warning"
-        status_ov = "ADEQUATE COMMON SUPPORT" if f_clip < 0.05 else "MARGINAL BOUNDARY RISK"
+        status_ov = "LOW CLIPPING FRACTION" if f_clip < 0.05 else "MARGINAL BOUNDARY RISK"
 
         st.markdown(f'<span class="status-badge {badge_ov}">{status_ov}</span>', unsafe_allow_html=True)
         st.markdown(f"""
@@ -1357,7 +1327,7 @@ with tabs[5]:
         - **Kish Effective Sample Size (ESS)**: `{ess_val:.1f}` / `{n_train}` units
         - **Propensity Clipping Fraction**: `{f_clip*100.0:.1f}%` of samples clipped to `[0.01, 0.99]`
         """, unsafe_allow_html=True)
-        st.caption("Evaluates whether both treatment arms have non-zero representation across covariate space.")
+        st.caption("Finite-sample propensity diagnostics cannot establish population positivity or joint covariate overlap.")
         st.markdown('</div>', unsafe_allow_html=True)
 
         # Panel 2: Architectural Consensus
@@ -1375,7 +1345,7 @@ with tabs[5]:
         - **Pairwise CATE Mean Divergence**: `{ite_divergence:.3f}` units
         - **Active Architectures**: S-Learner, T-Learner, X-Learner, IPW, AIPW
         """, unsafe_allow_html=True)
-        st.caption("Agreement between distinct causal identification strategies strengthens empirical credibility.")
+        st.caption("These estimators share identification assumptions. Agreement does not establish those assumptions or causal validity.")
         st.markdown('</div>', unsafe_allow_html=True)
 
     with col_p2:
@@ -1388,7 +1358,7 @@ with tabs[5]:
         t_stat = sens_result.get("t_statistic", 0.0)
         df_deg = sens_result.get("degrees_of_freedom", 0)
 
-        st.markdown('<span class="status-badge badge-pass">EXACT OLS BENCHMARK</span>', unsafe_allow_html=True)
+        st.markdown('<span class="status-badge badge-pass">OLS SENSITIVITY DIAGNOSTIC</span>', unsafe_allow_html=True)
         st.markdown(f"""
         - **OLS Baseline Specification**: `Y ~ T + X` (t = `{t_stat:.2f}`, df = `{df_deg}`)
         - **Partial R^2 (Y ~ T | X)**: `{pr2:.4f}`
@@ -1396,19 +1366,19 @@ with tabs[5]:
         - **Robustness Value RV(alpha=0.05)**: `{rv_alpha:.2f}%` (renders effect non-significant)
         """, unsafe_allow_html=True)
         st.caption(
-            "An unobserved confounder U must explain at least 22.4% of residual variation in BOTH treatment "
-            "and outcome to explain away the estimated intervention effect."
+            f"Equal-strength residual association benchmark: RV(q=1) = {rv_q1:.2f}%. "
+            "This OLS sensitivity calculation does not establish absence of unmeasured confounding."
         )
         st.markdown('</div>', unsafe_allow_html=True)
 
         # Panel 4: Decision Boundaries
         st.markdown('<div class="section-card">', unsafe_allow_html=True)
         st.markdown('<div class="section-card-title">4. Scientific Decision-Readiness Verdict</div>', unsafe_allow_html=True)
-        st.markdown('<span class="status-badge badge-pass">VALIDATED BENCHMARK STATUS</span>', unsafe_allow_html=True)
+        st.markdown('<span class="status-badge badge-pass">RESEARCH BENCHMARK — QA PENDING</span>', unsafe_allow_html=True)
         st.markdown("""
-        - **Internal Validity**: High on IHDP-100 benchmark (nuisance overfitting bias controlled via cross-fitting).
+        - **Internal Validity**: Not established by diagnostic plots or cross-fitting alone.
         - **Identification Bounds**: Valid under conditional ignorability; untestable in pure observational environments.
-        - **Semiparametric Guarantees**: AIPW rate-double-robustness guarantees population ATE, not individual CATE point predictions.
+        - **Inference Conditions**: AIPW inference requires identification, nuisance-rate and regularity conditions. Cross-fitting alone does not guarantee them.
         """, unsafe_allow_html=True)
         st.caption("Transparent reporting of methodological boundaries and operational constraints.")
         st.markdown('</div>', unsafe_allow_html=True)
