@@ -167,9 +167,17 @@ def test_bootstrap_ate_confidence_interval():
     T = rng.binomial(1, 0.5, size=n).astype(float)
     Y = 1.0 + 3.0 * T + rng.normal(scale=0.1, size=n)
 
+    # Test default sample_mean_cate
     low, high, ates = bootstrap_ate_confidence_interval(SLearner(), X, T, Y, n_bootstraps=15)
     assert low <= 3.0 <= high
     assert len(ates) == 15
+
+    # Test training_ate statistic (F9)
+    low_tr, high_tr, ates_tr = bootstrap_ate_confidence_interval(
+        SLearner(), X, T, Y, n_bootstraps=15, statistic="training_ate"
+    )
+    assert low_tr <= 3.0 <= high_tr
+    assert len(ates_tr) == 15
 
 
 def test_evaluate_replication_with_ihdp():

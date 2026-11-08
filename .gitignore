@@ -240,11 +240,13 @@ secrets.*
 *.npy
 *.parquet
 *.csv
+!/results/*.csv
 *.pkl
 *.pickle
 *.joblib
 /reports/figures/*
 !/reports/figures/.gitkeep
+!/reports/figures/*.png
 /artifacts/
 /outputs/
 /runs/

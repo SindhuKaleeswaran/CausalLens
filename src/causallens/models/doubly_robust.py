@@ -43,10 +43,17 @@ class DoublyRobustEstimator(BaseCausalEstimator):
 
     Statistical Guarantees & Boundaries
     -----------------------------------
-    1. Population ATE: Asymptotically unbiased, consistent, and normal if EITHER
-       outcome regression OR propensity score is correctly specified.
-    2. Individual CATE: Fitted via second-stage pseudo-outcome regression. Double
-       robustness does NOT automatically guarantee point-wise unbiasedness for CATE.
+    1. Population ATE: Root-n consistency and asymptotic normality require strict positivity
+       (bounded away from 0 and 1), regularity conditions, and that the product of nuisance
+       estimation error rates satisfies ||mu_hat - mu|| * ||e_hat - e|| = o_P(n^{-1/2})
+       (e.g., both converge at rate o_P(n^{-1/4})), or that one model class is correctly specified.
+       Finite-sample clipping to `clip_range` and residual misspecification introduce bias.
+    2. Cross-Fitting: K-fold cross-fitting eliminates first-order bias from in-sample overfitting
+       of nuisance parameters. When sample size or class count is smaller than `cv`, the estimator
+       falls back to in-sample nuisance fitting with appropriate disclosure.
+    3. Individual CATE: Fitted via second-stage pseudo-outcome regression. Double robustness
+       does NOT automatically guarantee point-wise unbiasedness for CATE without additional
+       non-parametric rate conditions on the second-stage effect learner.
     """
 
     def __init__(
@@ -89,16 +96,17 @@ class DoublyRobustEstimator(BaseCausalEstimator):
             "positivity": f"0 < e(X) < 1 for all X. Overlap required in both arms; clipped to {self.clip_range}.",
             "sutva": "No interference between units; single treatment version.",
             "double_robustness": (
-                "Rate-double-robustness: Consistent if either outcome surface models OR propensity model is correctly specified."
+                "Rate-double-robustness: Consistent if either outcome surface models OR propensity model is correctly specified, "
+                "or if both nuisance error rates satisfy ||mu_hat - mu|| * ||e_hat - e|| = o_P(n^{-1/2}) with bounded overlap."
             ),
             "population_ate_guarantee": (
-                "Rate-double-robustness: Consistent if either outcome surface models OR propensity model is correctly specified."
+                "Root-n asymptotic normality requires bounded positivity, regular nuisance rates, and lack of severe propensity clipping."
             ),
             "cate_regression_boundary": (
-                "Second-stage CATE regression estimates E[Gamma|X=x]. Point-wise consistency depends on the effect estimator model class."
+                "Second-stage CATE regression estimates E[Gamma|X=x]. Point-wise consistency depends on the effect estimator model class and rate conditions."
             ),
             "cross_fitting": (
-                f"{'K-fold cross-fitting (K=' + str(self.cv) + ') eliminates in-sample nuisance overfitting bias.' if self.is_cross_fitted_ else 'In-sample fitting (cross-fitting disabled or sample size too small).'}"
+                f"{'K-fold cross-fitting (K=' + str(self.cv) + ') reduces first-order nuisance overfitting bias.' if self.is_cross_fitted_ else 'In-sample fitting fallback (cross-fitting disabled or sample size too small).'}"
             ),
         }
 

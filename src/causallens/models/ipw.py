@@ -16,6 +16,7 @@ References:
       Causal Inference for Statistics, Social, and Biomedical Sciences.
 """
 from typing import Any, Dict, Optional, Tuple
+import warnings
 import numpy as np
 from sklearn.base import clone
 from sklearn.linear_model import LogisticRegression, RidgeCV
@@ -62,6 +63,7 @@ class IPWEstimator(BaseCausalEstimator):
         self.training_propensities_: Optional[np.ndarray] = None
         self.effective_sample_size_: Optional[float] = None
         self.overlap_diagnostics_: Optional[Dict[str, Any]] = None
+        self.weights_supported_: bool = True
 
     @property
     def assumptions(self) -> Dict[str, str]:
@@ -140,15 +142,30 @@ class IPWEstimator(BaseCausalEstimator):
 
         self.model_y1_ = clone(self.outcome_estimator)
         self.model_y0_ = clone(self.outcome_estimator)
+        self.weights_supported_ = True
 
         try:
             self.model_y1_.fit(X_arr[treated_mask], Y_arr[treated_mask], sample_weight=w_treated)
         except TypeError:
+            self.weights_supported_ = False
+            warnings.warn(
+                f"Outcome estimator {self.outcome_estimator.__class__.__name__} does not accept sample_weight; "
+                f"falling back to unweighted regression for Y(1). CATE predictions will reflect unweighted surfaces.",
+                UserWarning,
+                stacklevel=2,
+            )
             self.model_y1_.fit(X_arr[treated_mask], Y_arr[treated_mask])
 
         try:
             self.model_y0_.fit(X_arr[control_mask], Y_arr[control_mask], sample_weight=w_control)
         except TypeError:
+            self.weights_supported_ = False
+            warnings.warn(
+                f"Outcome estimator {self.outcome_estimator.__class__.__name__} does not accept sample_weight; "
+                f"falling back to unweighted regression for Y(0). CATE predictions will reflect unweighted surfaces.",
+                UserWarning,
+                stacklevel=2,
+            )
             self.model_y0_.fit(X_arr[control_mask], Y_arr[control_mask])
 
         self.fitted_ = True
@@ -192,6 +209,7 @@ class IPWEstimator(BaseCausalEstimator):
             "architecture": "Hybrid: Hájek weighting for ATE + Weighted outcome regression for CATE",
             "ate_estimator": "Normalized Hájek inverse probability weighting",
             "cate_estimator": "Propensity-weighted outcome surface regression",
+            "weights_supported": getattr(self, "weights_supported_", True),
             "effective_sample_size": self.effective_sample_size_,
             "overlap_diagnostics": self.overlap_diagnostics_,
         })

@@ -318,9 +318,16 @@ def sensitivity_unobserved_confounding(
     res = Y_arr - y_pred
     sigma2 = np.sum(res ** 2) / df
 
-    # Invert (M^T M)
-    inv_mtm = np.linalg.inv(M.T @ M)
-    se_ols = float(np.sqrt(sigma2 * inv_mtm[1, 1]))
+    # Invert (M^T M) with rank safety (F12)
+    if rank < M.shape[1]:
+        inv_mtm = np.linalg.pinv(M.T @ M)
+    else:
+        try:
+            inv_mtm = np.linalg.inv(M.T @ M)
+        except np.linalg.LinAlgError:
+            inv_mtm = np.linalg.pinv(M.T @ M)
+
+    se_ols = float(np.sqrt(sigma2 * max(0.0, inv_mtm[1, 1])))
     tau_ols = float(beta_ols[1])
 
     t_stat = tau_ols / se_ols if se_ols > 1e-12 else 0.0
@@ -383,8 +390,37 @@ def bootstrap_ate_confidence_interval(
     n_bootstraps: int = 25,
     alpha: float = 0.05,
     random_state: int = 42,
+    statistic: str = "sample_mean_cate",
 ) -> Tuple[float, float, np.ndarray]:
-    """Compute empirical bootstrap confidence interval for the population ATE by refitting across resamples."""
+    """Compute empirical bootstrap confidence interval for ATE by refitting across resamples.
+
+    Parameters
+    ----------
+    model : BaseCausalEstimator
+        Estimator instance to clone and fit across bootstrap resamples.
+    X : np.ndarray
+        Covariates.
+    T : np.ndarray
+        Treatment assignment indicator.
+    Y : np.ndarray
+        Observed outcomes.
+    n_bootstraps : int, default=25
+        Number of bootstrap replications. For rigorous tail percentiles (e.g. 95% CI),
+        >= 100 resamples are recommended in final reporting.
+    alpha : float, default=0.05
+        Significance level (e.g. 0.05 for 95% interval).
+    random_state : int, default=42
+        Seed for reproducibility.
+    statistic : {"sample_mean_cate", "training_ate"}, default="sample_mean_cate"
+        Target statistic to evaluate on each resample (F9):
+        - "sample_mean_cate": Evaluates estimate_ate(X[idx]) (sample average of predicted CATEs).
+        - "training_ate": Evaluates estimate_ate() (training-sample Hájek / AIPW parameter).
+
+    Returns
+    -------
+    lower, upper, ates_arr : tuple
+        Lower percentile, upper percentile, and array of successful bootstrap estimates.
+    """
     rng = np.random.RandomState(random_state)
     n = len(X)
     boot_ates: List[float] = []
@@ -396,7 +432,11 @@ def bootstrap_ate_confidence_interval(
         b_model = clone(model)
         try:
             b_model.fit(X[idx], T[idx], Y[idx])
-            boot_ates.append(float(b_model.estimate_ate(X[idx])))
+            if statistic == "training_ate":
+                val = b_model.estimate_ate()
+            else:
+                val = b_model.estimate_ate(X[idx])
+            boot_ates.append(float(val))
         except Exception:
             continue
 

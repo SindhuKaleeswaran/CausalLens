@@ -64,6 +64,14 @@ class BaseCausalEstimator(BaseEstimator, ABC):
         if not np.all(np.isfinite(X_arr)):
             raise ValueError("X contains non-finite values (NaN or Inf)")
 
+        # Enforce consistent feature count if fitted (F13)
+        if getattr(self, "fitted_", False) and getattr(self, "n_features_in_", 0) > 0:
+            if X_arr.shape[1] != self.n_features_in_:
+                raise ValueError(
+                    f"Feature count mismatch: estimator was fitted with {self.n_features_in_} features, "
+                    f"but received input with {X_arr.shape[1]} features."
+                )
+
         # Validate T if provided
         T_arr = None
         if T is not None:

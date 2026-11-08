@@ -12,6 +12,7 @@ def main():
     parser.add_argument("--full", action="store_true", help="Run full 100-replication benchmark")
     parser.add_argument("--data-dir", type=Path, default=root / "data" / "raw")
     parser.add_argument("--output-dir", type=Path, default=root / "reports")
+    parser.add_argument("--results-dir", type=Path, default=root / "results")
     args = parser.parse_args()
 
     if args.smoke:
@@ -27,6 +28,7 @@ def main():
         data_dir=args.data_dir,
         verbose=True,
         export_dir=args.output_dir,
+        results_dir=args.results_dir,
     )
 
     print("\nBenchmark Summary Results (sorted by PEHE):")

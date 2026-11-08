@@ -1023,6 +1023,63 @@ with tabs[1]:
     sns.despine(top=True, right=True)
     st.pyplot(fig_cate, use_container_width=True)
 
+    # -------------------------------------------------------------------------
+    # Unified 100-Replication Benchmark Results Section
+    # -------------------------------------------------------------------------
+    st.markdown('<hr style="border-color: #E2E8F0; margin: 1.5rem 0;">', unsafe_allow_html=True)
+    st.markdown('<div class="section-card-title">Unified 100-Replication Benchmark Evaluation (All 100 Replications, 600 Fits)</div>', unsafe_allow_html=True)
+    st.caption(
+        "Scientific evaluation across all 100 IHDP replications under strict split isolation (train N=672, test N=75). "
+        "Root-PEHE measures individual effect estimation error; ATE Error measures population effect bias; Policy Risk measures decision regret."
+    )
+
+    summary_file = Path(__file__).resolve().parent / "results" / "ihdp100_summary.csv"
+    if not summary_file.exists():
+        summary_file = Path(__file__).resolve().parent / "reports" / "benchmark_summary.csv"
+
+    if summary_file.exists():
+        df_bench = pd.read_csv(summary_file)
+        bench_cols = [c for c in ["model", "n_successful", "pehe_summary", "ate_error_summary", "policy_risk_mean", "cate_pearson_r_mean", "avg_runtime_sec"] if c in df_bench.columns]
+        rename_map = {
+            "model": "Causal Estimator",
+            "n_successful": "Successful Reps",
+            "pehe_summary": "Root-PEHE (Mean ± SD)",
+            "ate_error_summary": "ATE Error (Mean ± SD)",
+            "policy_risk_mean": "Policy Risk",
+            "cate_pearson_r_mean": "CATE Pearson r",
+            "avg_runtime_sec": "Avg Runtime (s)",
+        }
+        df_bench_disp = df_bench[bench_cols].rename(columns=rename_map)
+        st.dataframe(df_bench_disp, use_container_width=True, hide_index=True)
+
+        col_b_dl1, col_b_dl2 = st.columns([1, 1])
+        with col_b_dl1:
+            st.download_button(
+                label="Download 100-Replication Summary (CSV)",
+                data=df_bench.to_csv(index=False),
+                file_name="ihdp100_summary.csv",
+                mime="text/csv",
+            )
+        with col_b_dl2:
+            unified_res_file = Path(__file__).resolve().parent / "results" / "ihdp100_unified_results.csv"
+            if unified_res_file.exists():
+                st.download_button(
+                    label="Download Full 600-Fit Results (CSV)",
+                    data=unified_res_file.read_bytes(),
+                    file_name="ihdp100_unified_results.csv",
+                    mime="text/csv",
+                )
+
+        fig_comp = Path(__file__).resolve().parent / "reports" / "figures" / "benchmark_pehe_ate_comparison.png"
+        fig_dist = Path(__file__).resolve().parent / "reports" / "figures" / "pehe_distribution_boxplot.png"
+        if fig_comp.exists() and fig_dist.exists():
+            col_bf1, col_bf2 = st.columns([1, 1], gap="medium")
+            with col_bf1:
+                st.image(str(fig_comp), caption="Figure 1: Benchmark Precision & Accuracy with 95% Confidence Intervals", use_container_width=True)
+            with col_bf2:
+                st.image(str(fig_dist), caption="Figure 2: Distribution of Errors Across 100 Replications (Log Scale)", use_container_width=True)
+
+
 # =============================================================================
 # TAB 3: Counterfactual Explorer
 # =============================================================================

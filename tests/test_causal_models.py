@@ -208,3 +208,34 @@ def test_integration_with_ihdp_benchmark():
         assert y1_test.shape == (75,)
         assert np.all(np.isfinite(y0_test))
         assert np.all(np.isfinite(y1_test))
+
+
+def test_feature_count_mismatch_raises_on_predict(synthetic_data):
+    X, T, Y, _ = synthetic_data
+    for est in [NaiveEstimator(), SLearner(), TLearner(), XLearner(), IPWEstimator(), DoublyRobustEstimator()]:
+        est.fit(X, T, Y)
+        # Attempt prediction with wrong number of columns
+        X_bad = np.ones((len(X), X.shape[1] + 3))
+        with pytest.raises(ValueError, match="Feature count mismatch"):
+            est.estimate_ite(X_bad)
+
+
+def test_ipw_fallback_warning_when_sample_weight_unsupported():
+    from sklearn.base import BaseEstimator, RegressorMixin
+
+    class DummyNoWeightEstimator(BaseEstimator, RegressorMixin):
+        def fit(self, X, y):
+            self.fitted_ = True
+            return self
+
+        def predict(self, X):
+            return np.zeros(len(X))
+
+    model = IPWEstimator(outcome_estimator=DummyNoWeightEstimator())
+    X = np.ones((10, 2))
+    T = np.array([0, 0, 0, 0, 0, 1, 1, 1, 1, 1], dtype=float)
+    Y = np.arange(10, dtype=float)
+    with pytest.warns(UserWarning, match="does not accept sample_weight"):
+        model.fit(X, T, Y)
+    assert model.weights_supported_ is False
+
