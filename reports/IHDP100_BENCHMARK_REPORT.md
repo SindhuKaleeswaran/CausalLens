@@ -16,20 +16,24 @@
 
 Across all 100 benchmark replications of the Infant Health and Development Program (IHDP-100, CFRNet lineage), **600 causal model fits** were executed under strict split isolation (training on observational features $X, T, Y_f$; evaluating exclusively on held-out test splits $N=75$ against ground-truth potential outcomes $Y(0), Y(1)$ and counterfactual contrasts $\tau = \mu_1 - \mu_0$).
 
-| Estimator | Status | Root-PEHE Mean $\pm$ SD | Root-PEHE Median [95% CI] | Absolute ATE Error Mean $\pm$ SD | ATE Error Median [95% CI] | Policy Risk (Regret) | Pearson $r(\hat{\tau}, \tau)$ | Total Runtime (100 Reps) |
-|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| **T-Learner** | 100/100 | **2.265 $\pm$ 3.997** | **0.915** [1.482, 3.049] | **0.247 $\pm$ 0.380** | **0.134** [0.172, 0.321] | **0.0771** | **0.872** | 0.35 s |
-| **X-Learner** | 100/100 | 2.327 $\pm$ 3.994 | 0.985 [1.544, 3.110] | 0.272 $\pm$ 0.394 | 0.147 [0.194, 0.349] | 0.0821 | 0.846 | 1.99 s |
-| **IPW + Weighted Reg** | 100/100 | 2.348 $\pm$ 3.944 | 0.964 [1.575, 3.121] | 0.255 $\pm$ 0.348 | 0.160 [0.187, 0.324] | 0.0813 | 0.831 | 1.72 s |
-| **Doubly Robust (AIPW)** | 100/100 | 2.460 $\pm$ 3.918 | 1.095 [1.692, 3.228] | 0.276 $\pm$ 0.325 | 0.203 [0.212, 0.340] | 0.0915 | 0.798 | 9.85 s |
-| **Naive (Unadjusted)** | 100/100 | 5.712 $\pm$ 8.948 | 2.530 [3.958, 7.465] | 0.718 $\pm$ 1.671 | 0.275 [0.391, 1.046] | 1.2630 | 0.000 | 0.03 s |
-| **S-Learner** | 100/100 | 5.735 $\pm$ 8.855 | 2.541 [3.999, 7.470] | 0.797 $\pm$ 1.132 | 0.322 [0.576, 1.019] | 1.2768 | 0.000 | 0.27 s |
+| Estimator | Status | Root-PEHE Mean $\pm$ SD | Root-PEHE 95% CI (Mean) | Root-PEHE Median | Root-PEHE 95% CI (Median) | ATE Error Mean $\pm$ SD | ATE Error 95% CI (Mean) | ATE Error Median | ATE Error 95% CI (Median) | Policy Regret | Pearson $r$ | Total Runtime |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| **T-Learner** | 100/100 | **2.265 $\pm$ 3.997** | [1.568, 3.183] | **0.915** | [0.748, 1.053] | **0.247 $\pm$ 0.380** | [0.182, 0.333] | **0.134** | [0.110, 0.169] | **0.0771** | **0.872** | 0.35 s |
+| **X-Learner** | 100/100 | 2.327 $\pm$ 3.994 | [1.630, 3.248] | 0.985 | [0.849, 1.118] | 0.272 $\pm$ 0.394 | [0.204, 0.364] | 0.147 | [0.123, 0.187] | 0.0821 | 0.846 | 1.99 s |
+| **IPW + Weighted Reg** | 100/100 | 2.348 $\pm$ 3.944 | [1.660, 3.260] | 0.964 | [0.880, 1.143] | 0.255 $\pm$ 0.348 | [0.195, 0.334] | 0.160 | [0.129, 0.186] | 0.0813 | 0.831 | 1.72 s |
+| **Doubly Robust (AIPW)** | 100/100 | 2.460 $\pm$ 3.918 | [1.776, 3.375] | 1.095 | [1.004, 1.277] | 0.276 $\pm$ 0.325 | [0.219, 0.352] | 0.203 | [0.147, 0.237] | 0.0915 | 0.798 | 9.85 s |
+| **Naive (Unadjusted)** | 100/100 | 5.712 $\pm$ 8.948 | [4.109, 7.797] | 2.530 | [2.065, 3.090] | 0.718 $\pm$ 1.671 | [0.452, 1.106] | 0.275 | [0.191, 0.392] | 1.2630 | 0.000 | 0.03 s |
+| **S-Learner** | 100/100 | 5.735 $\pm$ 8.855 | [4.138, 7.807] | 2.541 | [2.061, 3.191] | 0.797 $\pm$ 1.132 | [0.605, 1.031] | 0.322 | [0.251, 0.475] | 1.2768 | 0.000 | 0.27 s |
 
-*Note on Metric Definitions:*
+*Note on Metric Definitions & Confidence Interval Methodology:*
 - **Root-PEHE**: $\sqrt{\epsilon_{PEHE}} = \sqrt{\frac{1}{n}\sum_{i=1}^n (\hat{\tau}_i - \tau_i)^2}$, measuring pointwise treatment effect estimation accuracy.
 - **PEHE (Squared)**: $\epsilon_{PEHE} = \frac{1}{n}\sum_{i=1}^n (\hat{\tau}_i - \tau_i)^2$ (T-Learner mean: 20.95, median: 0.836).
 - **ATE Error**: $|\hat{\tau}_{ATE} - \tau_{ATE}|$, where $\tau_{ATE} = \frac{1}{n}\sum_{i=1}^n (\mu_1(x_i) - \mu_0(x_i))$ for that split.
-- **Policy Risk**: $V(\pi^*) - V(\hat{\pi}) \ge 0$, empirical regret of decision rule $\hat{\pi}(x) = \mathbb{I}(\hat{\tau}(x) > 0)$ against the oracle policy $\pi^*(x) = \mathbb{I}(\mu_1(x) > \mu_0(x))$.
+- **Policy Risk / Regret**: $V(\pi^*) - V(\hat{\pi}) \ge 0$, empirical regret of decision rule $\hat{\pi}(x) = \mathbb{I}(\hat{\tau}(x) > 0)$ against the oracle policy $\pi^*(x) = \mathbb{I}(\mu_1(x) > \mu_0(x))$.
+- **Confidence Interval Separation**: In previous draft reports, 95% confidence intervals for the mean were erroneously labeled adjacent to the median. In this corrected report, all confidence intervals explicitly identify their target parameter via 1,000-iteration nonparametric percentile bootstrap resamples (`random_state=42`). Under right-skewed replication errors, the 95% CI for the mean ($[1.568, 3.183]$) and the 95% CI for the median ($[0.748, 1.053]$) are mathematically distinct and appropriately centered around their respective statistics.
+- **Model Coverage Audit (CFRNet & Causal Forest)**:
+  - *CFRNet*: Refers exclusively to the semi-synthetic benchmark dataset lineage released by Shalit et al. (2017). The neural network architecture itself requires TensorFlow/PyTorch and is not included in the lightweight scikit-learn stack.
+  - *Causal Forest*: Generalized Random Forest estimation (Wager & Athey 2018) requires `econml` or `causalml` with compiled C-extensions not in this project's dependency set. The 6 canonical estimators implemented (`Naive`, `S-Learner`, `T-Learner`, `X-Learner`, `IPW`, `Doubly Robust / AIPW`) provide complete coverage across meta-learning, propensity weighting, and semiparametric cross-fitting paradigms.
 
 ---
 

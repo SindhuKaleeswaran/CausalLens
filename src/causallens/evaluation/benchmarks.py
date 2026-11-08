@@ -196,7 +196,67 @@ def run_ihdp_benchmark(
 
     detailed_df = pd.concat(all_runs, ignore_index=True)
 
-    # Compute aggregate summary across runs
+    # Compute aggregate summary across runs using explicit mean and median bootstrap CIs
+    summary_df = aggregate_benchmark_results(
+        detailed_df, export_dir=export_dir, results_dir=results_dir
+    )
+    return summary_df, detailed_df
+
+
+def compute_bootstrap_ci(
+    values: np.ndarray,
+    statistic_fn,
+    n_bootstrap: int = 1000,
+    alpha: float = 0.05,
+    random_state: int = 42,
+) -> Tuple[float, float]:
+    """Compute nonparametric percentile bootstrap confidence interval for a target statistic.
+
+    Parameters
+    ----------
+    values : np.ndarray
+        Array of replication metrics.
+    statistic_fn : callable
+        Function computing summary statistic (e.g., np.mean, np.median).
+    n_bootstrap : int, default=1000
+        Number of bootstrap resamples.
+    alpha : float, default=0.05
+        Significance level (0.05 yields 95% confidence interval).
+    random_state : int, default=42
+        Reproducible random seed.
+
+    Returns
+    -------
+    tuple of (low, high) confidence bounds.
+    """
+    arr = np.asarray(values, dtype=np.float64)
+    n = len(arr)
+    if n < 2:
+        val = float(statistic_fn(arr)) if n == 1 else np.nan
+        return (val, val)
+
+    rng = np.random.RandomState(random_state)
+    boot_stats = np.empty(n_bootstrap, dtype=np.float64)
+    for b in range(n_bootstrap):
+        sample = rng.choice(arr, size=n, replace=True)
+        boot_stats[b] = float(statistic_fn(sample))
+
+    low = float(np.percentile(boot_stats, 100.0 * (alpha / 2.0)))
+    high = float(np.percentile(boot_stats, 100.0 * (1.0 - alpha / 2.0)))
+    return (round(low, 6), round(high, 6))
+
+
+def aggregate_benchmark_results(
+    detailed_df: pd.DataFrame,
+    export_dir: Optional[Union[str, Path]] = None,
+    results_dir: Optional[Union[str, Path]] = None,
+) -> pd.DataFrame:
+    """Aggregate replication-level metrics across IHDP benchmark fits.
+
+    Computes Mean, SD, 95% Bootstrap CI for the Mean, Median, and 95% Bootstrap CI
+    for the Median for all primary evaluation dimensions. Explicitly separates
+    and identifies mean-target vs median-target intervals to prevent labeling ambiguity.
+    """
     summary_rows = []
     for model_name, grp in detailed_df.groupby("model"):
         n_total = len(grp)
@@ -206,21 +266,22 @@ def run_ihdp_benchmark(
 
         def stats_for(col):
             if n_succ == 0 or col not in succ:
-                return (np.nan, np.nan, np.nan, np.nan, np.nan)
-            vals = succ[col].dropna()
-            m = float(vals.mean())
-            s = float(vals.std(ddof=1)) if len(vals) > 1 else 0.0
-            med = float(vals.median())
-            ci_hw = 1.96 * s / np.sqrt(len(vals)) if len(vals) > 1 else 0.0
-            return (m, s, med, m - ci_hw, m + ci_hw)
+                return (np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan)
+            vals = succ[col].dropna().values
+            m = float(np.mean(vals))
+            s = float(np.std(vals, ddof=1)) if len(vals) > 1 else 0.0
+            med = float(np.median(vals))
+            mean_lo, mean_hi = compute_bootstrap_ci(vals, np.mean, n_bootstrap=1000, alpha=0.05, random_state=42)
+            med_lo, med_hi = compute_bootstrap_ci(vals, np.median, n_bootstrap=1000, alpha=0.05, random_state=42)
+            return (m, s, med, mean_lo, mean_hi, med_lo, med_hi)
 
-        pehe_m, pehe_s, pehe_med, pehe_lo, pehe_hi = stats_for("root_pehe")
-        pehe_sq_m, pehe_sq_s, pehe_sq_med, _, _ = stats_for("pehe_sq")
-        ate_m, ate_s, ate_med, ate_lo, ate_hi = stats_for("ate_error")
-        prisk_m, prisk_s, prisk_med, prisk_lo, prisk_hi = stats_for("policy_risk")
-        pval_m, pval_s, pval_med, _, _ = stats_for("policy_value")
-        r_m, r_s, r_med, _, _ = stats_for("cate_pearson_r")
-        time_m, time_s, time_med, _, _ = stats_for("total_time_sec")
+        pehe_m, pehe_s, pehe_med, pehe_mean_lo, pehe_mean_hi, pehe_med_lo, pehe_med_hi = stats_for("root_pehe")
+        pehe_sq_m, pehe_sq_s, pehe_sq_med, _, _, _, _ = stats_for("pehe_sq")
+        ate_m, ate_s, ate_med, ate_mean_lo, ate_mean_hi, ate_med_lo, ate_med_hi = stats_for("ate_error")
+        prisk_m, prisk_s, prisk_med, prisk_mean_lo, prisk_mean_hi, prisk_med_lo, prisk_med_hi = stats_for("policy_risk")
+        pval_m, pval_s, pval_med, _, _, _, _ = stats_for("policy_value")
+        r_m, r_s, r_med, _, _, _, _ = stats_for("cate_pearson_r")
+        time_m, time_s, time_med, _, _, _, _ = stats_for("total_time_sec")
         time_total = float(succ["total_time_sec"].sum()) if n_succ > 0 else 0.0
 
         summary_rows.append({
@@ -229,9 +290,14 @@ def run_ihdp_benchmark(
             "n_failed": n_fail,
             "root_pehe_mean": pehe_m,
             "root_pehe_std": pehe_s,
+            "root_pehe_mean_ci95_low": pehe_mean_lo,
+            "root_pehe_mean_ci95_high": pehe_mean_hi,
             "root_pehe_median": pehe_med,
-            "root_pehe_ci95_low": pehe_lo,
-            "root_pehe_ci95_high": pehe_hi,
+            "root_pehe_median_ci95_low": pehe_med_lo,
+            "root_pehe_median_ci95_high": pehe_med_hi,
+            # Explicit aliases preserving backwards-compatibility
+            "root_pehe_ci95_low": pehe_mean_lo,
+            "root_pehe_ci95_high": pehe_mean_hi,
             "pehe_mean": pehe_m,
             "pehe_std": pehe_s,
             "pehe_sq_mean": pehe_sq_m,
@@ -239,14 +305,24 @@ def run_ihdp_benchmark(
             "pehe_sq_median": pehe_sq_med,
             "ate_error_mean": ate_m,
             "ate_error_std": ate_s,
+            "ate_error_mean_ci95_low": ate_mean_lo,
+            "ate_error_mean_ci95_high": ate_mean_hi,
             "ate_error_median": ate_med,
-            "ate_error_ci95_low": ate_lo,
-            "ate_error_ci95_high": ate_hi,
+            "ate_error_median_ci95_low": ate_med_lo,
+            "ate_error_median_ci95_high": ate_med_hi,
+            # Explicit aliases preserving backwards-compatibility
+            "ate_error_ci95_low": ate_mean_lo,
+            "ate_error_ci95_high": ate_mean_hi,
             "policy_risk_mean": prisk_m,
             "policy_risk_std": prisk_s,
+            "policy_risk_mean_ci95_low": prisk_mean_lo,
+            "policy_risk_mean_ci95_high": prisk_mean_hi,
             "policy_risk_median": prisk_med,
-            "policy_risk_ci95_low": prisk_lo,
-            "policy_risk_ci95_high": prisk_hi,
+            "policy_risk_median_ci95_low": prisk_med_lo,
+            "policy_risk_median_ci95_high": prisk_med_hi,
+            # Explicit aliases preserving backwards-compatibility
+            "policy_risk_ci95_low": prisk_mean_lo,
+            "policy_risk_ci95_high": prisk_mean_hi,
             "policy_value_mean": pval_m,
             "policy_value_std": pval_s,
             "cate_pearson_r_mean": r_m,
@@ -254,7 +330,11 @@ def run_ihdp_benchmark(
             "avg_runtime_sec": time_m,
             "total_runtime_sec": round(time_total, 4),
             "pehe_summary": f"{pehe_m:.3f} +/- {pehe_s:.3f}" if pd.notnull(pehe_s) else f"{pehe_m:.3f}",
+            "pehe_mean_ci_summary": f"[{pehe_mean_lo:.3f}, {pehe_mean_hi:.3f}]",
+            "pehe_median_ci_summary": f"{pehe_med:.3f} [{pehe_med_lo:.3f}, {pehe_med_hi:.3f}]",
             "ate_error_summary": f"{ate_m:.3f} +/- {ate_s:.3f}" if pd.notnull(ate_s) else f"{ate_m:.3f}",
+            "ate_error_mean_ci_summary": f"[{ate_mean_lo:.3f}, {ate_mean_hi:.3f}]",
+            "ate_error_median_ci_summary": f"{ate_med:.3f} [{ate_med_lo:.3f}, {ate_med_hi:.3f}]",
         })
 
     summary_df = pd.DataFrame(summary_rows).sort_values(by="root_pehe_mean", ascending=True).reset_index(drop=True)
@@ -275,4 +355,4 @@ def run_ihdp_benchmark(
         detailed_df.to_csv(r_dir / "ihdp100_unified_results.csv", index=False)
         summary_df.to_csv(r_dir / "ihdp100_summary.csv", index=False)
 
-    return summary_df, detailed_df
+    return summary_df
