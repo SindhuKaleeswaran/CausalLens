@@ -14,7 +14,7 @@ Observed associations can mislead decisions when treatment assignment and outcom
 4. Develop causal baselines and estimators; evaluate treatment-effect estimates against documented benchmark targets where available.
 5. Run robustness experiments and integrate a Phase 1 demo.
 
-Phases 1–2 are implemented: source research, local acquisition, structural inspection, and a value-preserving loader. Training-only EDA (Phase 3) is complete; minimal optional preprocessing (Phase 4) is implemented; full quality assurance (Phase 5) remains pending. Six causal estimators, evaluation and robustness modules, and a Streamlit dashboard are implemented. See [pre-Phase-5 audit](docs/pre_phase5_audit.md) for current verification and limitations.
+Phases 1–2 are implemented: source research, local acquisition, structural inspection, and a value-preserving loader. Training-only EDA (Phase 3) is complete; minimal optional preprocessing (Phase 4) is implemented; Phase 5 data QA is complete locally. Six causal estimators, evaluation and robustness modules, and a Streamlit dashboard are implemented. See [pre-Phase-5 audit](docs/pre_phase5_audit.md) for current verification and limitations.
 
 ## Development setup
 
@@ -85,3 +85,7 @@ Reported test ATE predictions are means of predicted CATE over test covariates.
 For IPW/AIPW these differ from training Hájek/AIPW estimates returned by `estimate_ate()` without X.
 The AIPW training ATE interval does not cover individual CATE or the test prediction average.
 All outcomes are simulated benchmark quantities; no clinical effectiveness is established.
+
+## Phase 5 data QA
+
+Run `python scripts/validate_ihdp.py` to reproduce all-100-replication checks. See reports/data_quality_report.md for split-specific truth/noise summaries and docs/model_handoff.md for the integration contract. No model or uncertainty validation is implied.
