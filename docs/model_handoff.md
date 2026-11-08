@@ -80,3 +80,57 @@ When executing experimental runs across replications:
    - $\sqrt{\epsilon_{PEHE}} = \sqrt{\frac{1}{n} \sum_{i=1}^n (\hat{\tau}_i - \tau_i)^2}$
    - $\text{ATE Error} = |\hat{\tau}_{ATE} - \tau_{ATE}|$
    - Coverage of Doubly Robust 95% Confidence Intervals
+
+## Phase 5 data handoff — 2026-11-07
+
+### Source, reproduction and ownership
+
+Use the CFRNet-lineage IHDP-100 train/test NPZ files from the author-hosted URLs in `docs/references.md`. Study-derived covariates/assignment and simulated responses must not be interpreted as direct clinical treatment evidence. `docs/data_dictionary.md` defines canonical x01–x25 and flags uncertain clinical mappings. Source hashes and exact schema are in `docs/data_manifest.json`; no publisher-authenticated checksums or separate redistribution license have been verified. Keep archives in ignored `data/raw/`.
+
+From the repository root in the installed environment:
+
+```bash
+python scripts/download_ihdp.py --expected-manifest docs/data_manifest.json
+python scripts/validate_ihdp.py
+python -m pytest -q
+```
+
+The validation command audits replication 0, then 1/2/9, then the remainder. Reports contain aggregate records, not patient arrays. Record the commit SHA, environment, hashes, replication, split and preprocessing flag with every experiment. There is no random operation in this data QA; no seed is needed. Estimator seeds remain the modeling developer's responsibility.
+
+### Raw or optional scaling, unchanged estimator interface
+
+```python
+from causallens.data.preprocess import load_preprocessed_ihdp
+from causallens.data.loader import load_ihdp_truth
+from causallens.data.validate import validate_truth
+
+train, test = load_preprocessed_ihdp(0, standardize=False, data_dir="data/raw")
+# Existing estimator code uses train['X'], train['T'], train['Y'].
+# Enable standardize=True only when required; x01–x06 use training statistics.
+# Binary columns, including x14={1,2}, and T/Y remain unchanged.
+
+# Evaluation/QA only, after fitting and tuning decisions are fixed:
+truth = load_ihdp_truth(0, "test", data_dir="data/raw")
+targets = validate_truth(test, truth)
+print(targets['ate_true'], targets['att_true'])
+```
+
+Ground-truth validation is available now; earlier references to “Phase 7” describe the model team's evaluation workflow, not an access requirement. Never use truth in preprocessing, estimator fitting, model selection or propensity estimation. If creating validation data, split only the official training partition first and fit transformations on its reduced training subset.
+
+### Ground-truth semantics and alignment
+
+`tau_i = mu1_i - mu0_i` is an expected conditional contrast, not the noisy realized y1−y0. ATE averages tau over the explicitly chosen population; ATT restricts to treated units and ATC to controls. Empty subgroups return None, not zero. Differences across split-specific effects are expected; scalar archive `ate=4` is not a replacement for these targets.
+
+Factual residual is Y−mu_T; counterfactual residual is ycf−mu_(1−T). Noise is retained and no exact equality to expected outcomes is required. Known simulated targets enable evaluation even where observational identification is difficult; they do not establish positivity or clinical generalization.
+
+The audit compares every loaded source field against the exact corresponding archive split and replication. Shapes, dtypes and feature order are verified through this source comparison. Bare arrays have no semantic column names or patient IDs: callers must preserve order. A consistent joint permutation of oracle arrays could pass shape/contrast checks alone; the source-slice checks are therefore essential. Absence of shared exact X/T fingerprints cannot certify patient-level disjointness. Never match row indices across replications or pool simulations as independent cohorts.
+
+### Quality evidence and remaining limits
+
+`reports/data_quality_report.md` and `reports/data_quality_results.json` record all 200 split-level results and archive hashes. Checks cover finite values, exact schema, binary encodings, array/source alignment, expected effects, raw-mode preservation, training-only scaling, unchanged T/Y and immutable archive bytes. Numeric correctness does not settle the model/inference findings in `docs/pre_phase5_audit.md`; those remain Lenin's review responsibility. No estimator mathematics or dashboard code was changed by Phase 5.
+
+### Phase 5 execution ledger
+
+On 2026-11-07, `python scripts/validate_ihdp.py` produced 200 passing split records, zero replication exceptions, and identical before/after archive hashes. Replication-0 ATE targets were 4.011571487963278 (train) and 4.05634575318767 (test); these are simulator targets, not estimated clinical effects.
+
+`python -m pytest -q --ignore=tests/test_dashboard_interactions.py` passed **102 tests**, with no skips. An attempted full-suite run stopped at collection because Streamlit is absent from this local environment; no dashboard validation is claimed for Phase 5. The earlier audit's dashboard evidence remains separately documented. Whitespace checks passed. No raw archives or executed row-level notebook outputs are included in these changes.
