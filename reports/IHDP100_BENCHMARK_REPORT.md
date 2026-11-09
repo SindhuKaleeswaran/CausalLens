@@ -1,3 +1,5 @@
+> Historical six-model report. See the [independent verification and separate eight-model experiment](scientific_verification.md) for current results and limitations.
+
 # CausalLens: Unified IHDP-100 Benchmark Report
 
 **Project:** CausalLens — Causal AI & Counterfactual Decision Support  
@@ -22,8 +24,8 @@ Across all 100 benchmark replications of the Infant Health and Development Progr
 | **X-Learner** | 100/100 | 2.327 $\pm$ 3.994 | [1.630, 3.248] | 0.985 | [0.849, 1.118] | 0.272 $\pm$ 0.394 | [0.204, 0.364] | 0.147 | [0.123, 0.187] | 0.0821 | 0.846 | 1.99 s |
 | **IPW + Weighted Reg** | 100/100 | 2.348 $\pm$ 3.944 | [1.660, 3.260] | 0.964 | [0.880, 1.143] | 0.255 $\pm$ 0.348 | [0.195, 0.334] | 0.160 | [0.129, 0.186] | 0.0813 | 0.831 | 1.72 s |
 | **Doubly Robust (AIPW)** | 100/100 | 2.460 $\pm$ 3.918 | [1.776, 3.375] | 1.095 | [1.004, 1.277] | 0.276 $\pm$ 0.325 | [0.219, 0.352] | 0.203 | [0.147, 0.237] | 0.0915 | 0.798 | 9.85 s |
-| **Naive (Unadjusted)** | 100/100 | 5.712 $\pm$ 8.948 | [4.109, 7.797] | 2.530 | [2.065, 3.090] | 0.718 $\pm$ 1.671 | [0.452, 1.106] | 0.275 | [0.191, 0.392] | 1.2630 | 0.000 | 0.03 s |
-| **S-Learner** | 100/100 | 5.735 $\pm$ 8.855 | [4.138, 7.807] | 2.541 | [2.061, 3.191] | 0.797 $\pm$ 1.132 | [0.605, 1.031] | 0.322 | [0.251, 0.475] | 1.2768 | 0.000 | 0.27 s |
+| **Naive (Unadjusted)** | 100/100 | 5.712 $\pm$ 8.948 | [4.109, 7.797] | 2.530 | [2.065, 3.090] | 0.718 $\pm$ 1.671 | [0.452, 1.106] | 0.275 | [0.191, 0.392] | 1.2630 | undefined | 0.03 s |
+| **S-Learner** | 100/100 | 5.735 $\pm$ 8.855 | [4.138, 7.807] | 2.541 | [2.061, 3.191] | 0.797 $\pm$ 1.132 | [0.605, 1.031] | 0.322 | [0.251, 0.475] | 1.2768 | undefined | 0.27 s |
 
 *Note on Metric Definitions & Confidence Interval Methodology:*
 - **Root-PEHE**: $\sqrt{\epsilon_{PEHE}} = \sqrt{\frac{1}{n}\sum_{i=1}^n (\hat{\tau}_i - \tau_i)^2}$, measuring pointwise treatment effect estimation accuracy.
@@ -57,7 +59,7 @@ Across all 100 benchmark replications of the Infant Health and Development Progr
 4. **CATE Ranking & Treatment Effect Correlation:**
    - **Winner: T-Learner** (Pearson $r = 0.872$, Median $r = 0.920$).
    - *Runners-Up:* X-Learner ($r = 0.846$), IPW ($r = 0.831$), Doubly Robust ($r = 0.798$).
-   - *Zero Correlation:* Naive and linear S-Learner predict uniform or unadjusted constant effects, yielding $r = 0.000$.
+   - Correlation is undefined for constant predictions.
 
 ---
 

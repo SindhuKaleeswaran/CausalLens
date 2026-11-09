@@ -146,3 +146,13 @@ def test_local_benchmark_integration():
         assert s["n"]==n
         assert s["sha256"]==manifest["files"][split]["sha256"]
     assert result["split_check"]["exact_shared_covariate_treatment_rows"]==0
+
+
+def test_unpacked_size_limit_precedes_decompression(tmp_path, monkeypatch):
+    from causallens.data import loader
+    path = tmp_path / "compressed.npz"
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("x.npy", bytes(256000))
+    monkeypatch.setattr(loader, "MAX_UNPACKED_BYTES", 100000)
+    with pytest.raises(ValueError, match="Unpacked archive"):
+        loader.validate_archive(path)

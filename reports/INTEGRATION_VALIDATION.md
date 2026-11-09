@@ -1,3 +1,5 @@
+> Historical six-model report. See the [independent verification and separate eight-model experiment](scientific_verification.md) for current results and limitations.
+
 # CausalLens: Integration & Scientific Validation Report
 
 **Project:** CausalLens — Causal ML & Decision Intelligence Platform  

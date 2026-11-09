@@ -77,8 +77,8 @@ def evaluate_replication(
     for name, model in models.items():
         t0 = time.perf_counter()
         # Clone ensures hyperparameters and state are cleanly preserved
-        fitted_model = clone(model)
         try:
+            fitted_model = clone(model)
             fitted_model.fit(train["X"], train["T"], train["Y"])
             fit_time = time.perf_counter() - t0
 
@@ -107,14 +107,14 @@ def evaluate_replication(
                 cate_r = float(stats.pearsonr(tau_true, ite_pred)[0])
                 cate_rho = float(stats.spearmanr(tau_true, ite_pred)[0])
             else:
-                cate_r = 0.0
-                cate_rho = 0.0
+                cate_r = np.nan
+                cate_rho = np.nan
 
             records.append({
                 "replication": replication,
                 "model": name,
                 "status": "SUCCESS",
-                "seed": 42 + replication,
+                "seed": getattr(model, "random_state", None),
                 "pehe": round(root_pehe, 4),  # backwards compatibility root-PEHE
                 "root_pehe": round(root_pehe, 4),
                 "pehe_sq": round(pehe_sq, 4),
@@ -137,7 +137,7 @@ def evaluate_replication(
                 "replication": replication,
                 "model": name,
                 "status": "FAILED",
-                "seed": 42 + replication,
+                "seed": getattr(model, "random_state", None),
                 "pehe": np.nan,
                 "root_pehe": np.nan,
                 "pehe_sq": np.nan,
@@ -188,6 +188,8 @@ def run_ihdp_benchmark(
     all_runs: List[pd.DataFrame] = []
     n_reps = len(replications)
 
+    if not n_reps or len(set(replications)) != n_reps:
+        raise ValueError("Expected nonempty unique replication indices")
     for i, rep in enumerate(replications):
         if verbose:
             print(f"[{i+1}/{n_reps}] Evaluating IHDP replication {rep}...")
@@ -257,6 +259,18 @@ def aggregate_benchmark_results(
     for the Median for all primary evaluation dimensions. Explicitly separates
     and identifies mean-target vs median-target intervals to prevent labeling ambiguity.
     """
+    if detailed_df.empty or detailed_df[["model", "replication", "status"]].isna().any().any():
+        raise ValueError("Expected populated replication records")
+    if detailed_df.duplicated(["replication", "model"]).any():
+        raise ValueError("Duplicate replication and model")
+    if not detailed_df.status.isin(["SUCCESS", "FAILED"]).all():
+        raise ValueError("Unknown fit status")
+    required = ["root_pehe", "pehe_sq", "ate_error", "policy_risk", "policy_value", "total_time_sec"]
+    if not np.isfinite(detailed_df.loc[detailed_df.status == "SUCCESS", required]).all().all():
+        raise ValueError("Successful primary metrics must be finite")
+    expected = detailed_df.replication.nunique()
+    if not detailed_df.groupby("model").size().eq(expected).all():
+        raise ValueError("Missing model and replication combinations")
     summary_rows = []
     for model_name, grp in detailed_df.groupby("model"):
         n_total = len(grp)
@@ -268,6 +282,8 @@ def aggregate_benchmark_results(
             if n_succ == 0 or col not in succ:
                 return (np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan)
             vals = succ[col].dropna().values
+            if not len(vals):
+                return (np.nan,) * 7
             m = float(np.mean(vals))
             s = float(np.std(vals, ddof=1)) if len(vals) > 1 else 0.0
             med = float(np.median(vals))
@@ -325,6 +341,7 @@ def aggregate_benchmark_results(
             "policy_risk_ci95_high": prisk_mean_hi,
             "policy_value_mean": pval_m,
             "policy_value_std": pval_s,
+            "cate_pearson_r_n_defined": int(succ["cate_pearson_r"].count()),
             "cate_pearson_r_mean": r_m,
             "cate_pearson_r_median": r_med,
             "avg_runtime_sec": time_m,
@@ -346,7 +363,7 @@ def aggregate_benchmark_results(
         summary_df.to_csv(p_dir / "benchmark_summary.csv", index=False)
         detailed_df.to_csv(p_dir / "benchmark_detailed.csv", index=False)
         with open(p_dir / "benchmark_summary.json", "w") as f:
-            json.dump(summary_df.to_dict(orient="records"), f, indent=2)
+            json.dump(json.loads(summary_df.to_json(orient="records", double_precision=15)), f, indent=2, allow_nan=False)
 
     # Export to results/ directory if requested
     if results_dir is not None:
@@ -356,3 +373,30 @@ def aggregate_benchmark_results(
         summary_df.to_csv(r_dir / "ihdp100_summary.csv", index=False)
 
     return summary_df
+
+
+def load_benchmark_artifacts(results_dir: Path, names):
+    """Read a full 100-replication release and reject partial or inconsistent files."""
+    detail = pd.read_csv(results_dir / "ihdp100_unified_results.csv")
+    summary = pd.read_csv(results_dir / "ihdp100_summary.csv")
+    expected_keys = pd.MultiIndex.from_product([range(100), sorted(names)])
+    keys = pd.MultiIndex.from_frame(detail[["replication", "model"]])
+    if not keys.is_unique or not keys.sort_values().equals(expected_keys):
+        raise ValueError("Expected one record per replication and estimator")
+    if not detail.status.isin(["SUCCESS", "FAILED"]).all():
+        raise ValueError("Unknown fit status")
+    successful = detail[detail.status == "SUCCESS"]
+    if not np.isfinite(successful[["root_pehe", "ate_error", "policy_risk"]]).all().all():
+        raise ValueError("Invalid successful metrics")
+    indexed = summary.set_index("model").reindex(sorted(names))
+    counts = successful.groupby("model").size().reindex(sorted(names), fill_value=0)
+    if len(summary) != len(names) or not indexed.n_successful.eq(counts).all() or not indexed.n_failed.eq(100-counts).all():
+        raise ValueError("Summary fit counts differ from detailed records")
+    for metric in ("root_pehe", "ate_error", "policy_risk"):
+        means = successful.groupby("model")[metric].mean().reindex(sorted(names))
+        if not np.allclose(indexed[metric + "_mean"], means, equal_nan=True):
+            raise ValueError("Summary and replication metrics differ")
+    for col in ("pehe_mean_ci_summary", "pehe_median_ci_summary", "ate_error_mean_ci_summary", "ate_error_median_ci_summary"):
+        if col not in indexed:
+            raise ValueError("Missing labeled uncertainty intervals")
+    return detail, summary

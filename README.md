@@ -1,11 +1,10 @@
 # CausalLens: Professional Causal Investigation & Decision Intelligence Platform
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue.svg)](https://www.python.org/)
-[![Tests Passing](https://img.shields.io/badge/tests-116%2F116%20passing-success.svg)](tests/)
 [![Benchmark](https://img.shields.io/badge/IHDP--100-600%2F600%20fits%20converged-teal.svg)](results/)
 [![License: Proprietary](https://img.shields.io/badge/license-DataNova%202026-indigo.svg)](LICENSE)
 
-**CausalLens** is an open-source, scientific causal investigation and decision-support platform designed for the **DataNova Global Data-thon 2026 (Track DN-OP-01: Open Innovation Challenge)**. 
+**CausalLens** is a scientific causal investigation and decision-support platform designed for the **DataNova Global Data-thon 2026 (Track DN-OP-01: Open Innovation Challenge)**.
 
 Moving beyond ordinary predictive machine learning, CausalLens leverages the **Neyman-Rubin potential outcomes framework** to uncover hidden observational confounding, estimate heterogeneous treatment effects (CATE / ITE), simulate counterfactual outcomes, and optimize operational resource allocation under capacity constraints.
 
@@ -40,21 +39,16 @@ CausalLens implements 6 canonical causal estimators under a unified scikit-learn
 
 Evaluated across all 100 Infant Health and Development Program (IHDP) replications under strict train/test split isolation (Train $N=672$, Held-Out Test $N=75$):
 
-| Estimator | Fits Converged | Root-PEHE (Mean ± SD) | Root-PEHE (Median) | ATE Error (Mean ± SD) | Policy Regret (Mean ± SD) |
-|---|:---:|:---:|:---:|:---:|:---:|
-| **T-Learner** | **100/100** | **0.697 ± 0.170** | **0.672** | **0.158 ± 0.125** | **0.081 ± 0.082** |
-| **X-Learner** | **100/100** | 0.759 ± 0.186 | 0.742 | 0.180 ± 0.138 | 0.084 ± 0.087 |
-| **IPW + Weighted Reg** | **100/100** | 0.779 ± 0.169 | 0.757 | 0.187 ± 0.141 | 0.087 ± 0.086 |
-| **Doubly Robust (AIPW)**| **100/100** | 0.892 ± 0.182 | 0.871 | 0.222 ± 0.169 | 0.093 ± 0.091 |
-| **Naive (Unadjusted)** | **100/100** | 4.143 ± 4.314 | 2.502 | 0.400 ± 0.283 | 0.179 ± 0.148 |
-| **S-Learner** | **100/100** | 4.167 ± 4.316 | 2.509 | 0.406 ± 0.285 | 0.180 ± 0.148 |
+The original six-model run completed 600/600 fits. T-Learner mean Root-PEHE was 2.265 (95% bootstrap interval 1.568–3.183), median 0.915 (0.748–1.053). The separate optional eight-model experiment completed 800/800 fits. CFRNet-MMD averaged 1.472 and the honest causal forest averaged 3.849. See the [complete comparison and statistical verification](reports/scientific_verification.md).
 
-### Rigorous Paired Statistical Significance (Head-to-Head vs. T-Learner)
+To reproduce the extended experiment, install CPU PyTorch 2.15.0 and the experiments extra, then run:
 
-Paired tests across all 100 replications confirm that `T-Learner` achieves a statistically significant advantage:
-- **vs. Doubly Robust (AIPW)**: Mean $\Delta = +0.195$, T-Learner Win Rate: **92.0%**, Wilcoxon $p = 6.47 \times 10^{-16}$.
-- **vs. IPW + Weighted Reg**: Mean $\Delta = +0.082$, T-Learner Win Rate: **86.0%**, Wilcoxon $p = 1.22 \times 10^{-12}$.
-- **vs. X-Learner**: Mean $\Delta = +0.062$, T-Learner Win Rate: **74.0%**, Wilcoxon $p = 8.39 \times 10^{-10}$.
+```bash
+python -m pip install torch==2.15.0 --index-url https://download.pytorch.org/whl/cpu
+python -m pip install -e ".[experiments]"
+python scripts/evaluate_extended.py
+python scripts/verify_ihdp100.py --extended --results-dir results/extended
+```
 
 ---
 
@@ -65,7 +59,7 @@ The Streamlit dashboard (`app.py`) provides 6 aligned analytical sections:
 1. **Data & Confounding**: Standardized Mean Difference (SMD) bar chart for 25 baseline covariates, propensity overlap density plots, and Kish Effective Sample Size diagnostics.
 2. **Model Evaluation**: Precision (Root-PEHE) vs. Parameter Accuracy (ATE Error) trade-off scatter plots, CATE kernel density comparisons, and unified 100-replication benchmark summaries.
 3. **Counterfactual Explorer (The Aha Moment)**: Real-time individual counterfactual simulation, quick archetype presets (High vs. Median vs. Negative Responder), Plotly Potential Outcomes Pathway Flow waterfall charts, and normalized covariate profile deviation bar charts.
-4. **Treatment Heterogeneity & Policy Simulator**: Operational resource allocation under finite capacity constraints ($10\%$ to $100\%$). Compares Model-Guided allocation against Benchmark Oracle, Random Assignment, Treat All, and Treat None with exact policy value $V(\pi)$ and non-negative regret $V(\pi^*) - V(\pi)$.
+4. **Treatment Heterogeneity & Policy Simulator**: Operational resource allocation under finite capacity constraints ($0\%$ to $100\%$). Compares Model-Guided allocation against Benchmark Oracle, Random Assignment, Treat All, and Treat None with exact policy value $V(\pi)$ and non-negative regret $V(\pi^*) - V(\pi)$.
 5. **Robustness Analysis**: Davison-Hinkley Monte Carlo placebo permutation test ($B=20$ trials), uninformative noise injection stability test, and an interactive **Pairwise Estimator Disagreement Matrix** heatmap.
 6. **Evidence Assessment**: Causal Reliability Passport evaluating empirical overlap, architectural consensus, Cinelli-Hazlett (2020) omitted variable sensitivity, 100-replication paired significance tables, and one-click JSON export.
 
@@ -88,7 +82,9 @@ source .venv/bin/activate
 .venv\Scripts\activate
 
 # Install dependencies including dashboard extra
-pip install -e ".[dashboard]"
+python -m pip install --upgrade pip
+python -m pip install -e ".[dashboard,dev]"
+python scripts/download_ihdp.py --expected-manifest docs/data_manifest.json
 ```
 
 ### 2. Launch the Interactive Decision Studio
@@ -104,7 +100,7 @@ Open your browser to `http://localhost:8501`.
 # Run all unit, integration, and headless interaction tests
 pytest
 ```
-All **116 tests** run in < 60 seconds with 100% pass rate.
+See [final QA](reports/QA.md) for executed checks and environment details.
 
 ---
 

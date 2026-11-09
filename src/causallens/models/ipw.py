@@ -16,6 +16,7 @@ References:
       Causal Inference for Statistics, Social, and Biomedical Sciences.
 """
 from typing import Any, Dict, Optional, Tuple
+from inspect import Parameter, signature
 import warnings
 import numpy as np
 from sklearn.base import clone
@@ -76,6 +77,9 @@ class IPWEstimator(BaseCausalEstimator):
         }
 
     def fit(self, X: Any, T: Any, Y: Any) -> "IPWEstimator":
+        low, high = self.clip_range
+        if not 0 < low < high < 1:
+            raise ValueError("clip_range must satisfy 0 < low < high < 1")
         X_arr, T_arr, Y_arr = self._validate_inputs(X, T, Y)
         assert T_arr is not None and Y_arr is not None
 
@@ -142,31 +146,19 @@ class IPWEstimator(BaseCausalEstimator):
 
         self.model_y1_ = clone(self.outcome_estimator)
         self.model_y0_ = clone(self.outcome_estimator)
-        self.weights_supported_ = True
-
-        try:
-            self.model_y1_.fit(X_arr[treated_mask], Y_arr[treated_mask], sample_weight=w_treated)
-        except TypeError:
-            self.weights_supported_ = False
+        params = signature(self.model_y1_.fit).parameters
+        self.weights_supported_ = "sample_weight" in params or any(
+            p.kind == Parameter.VAR_KEYWORD for p in params.values()
+        )
+        if not self.weights_supported_:
             warnings.warn(
-                f"Outcome estimator {self.outcome_estimator.__class__.__name__} does not accept sample_weight; "
-                f"falling back to unweighted regression for Y(1). CATE predictions will reflect unweighted surfaces.",
-                UserWarning,
-                stacklevel=2,
+                f"{type(self.outcome_estimator).__name__} does not accept sample_weight; "
+                "falling back to unweighted outcome regressions.", UserWarning, stacklevel=2,
             )
-            self.model_y1_.fit(X_arr[treated_mask], Y_arr[treated_mask])
-
-        try:
-            self.model_y0_.fit(X_arr[control_mask], Y_arr[control_mask], sample_weight=w_control)
-        except TypeError:
-            self.weights_supported_ = False
-            warnings.warn(
-                f"Outcome estimator {self.outcome_estimator.__class__.__name__} does not accept sample_weight; "
-                f"falling back to unweighted regression for Y(0). CATE predictions will reflect unweighted surfaces.",
-                UserWarning,
-                stacklevel=2,
-            )
-            self.model_y0_.fit(X_arr[control_mask], Y_arr[control_mask])
+        for regressor, mask, weights in ((self.model_y1_, treated_mask, w_treated),
+                                        (self.model_y0_, control_mask, w_control)):
+            kwargs = {"sample_weight": weights} if self.weights_supported_ else {}
+            regressor.fit(X_arr[mask], Y_arr[mask], **kwargs)
 
         self.fitted_ = True
         self.n_features_in_ = X_arr.shape[1]

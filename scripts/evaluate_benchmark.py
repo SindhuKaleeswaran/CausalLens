@@ -11,8 +11,8 @@ def main():
     parser.add_argument("--smoke", action="store_true", help="Run fast 2-replication smoke test")
     parser.add_argument("--full", action="store_true", help="Run full 100-replication benchmark")
     parser.add_argument("--data-dir", type=Path, default=root / "data" / "raw")
-    parser.add_argument("--output-dir", type=Path, default=root / "reports")
-    parser.add_argument("--results-dir", type=Path, default=root / "results")
+    parser.add_argument("--output-dir", type=Path, default=None)
+    parser.add_argument("--results-dir", type=Path, default=None)
     args = parser.parse_args()
 
     if args.smoke:
@@ -22,6 +22,13 @@ def main():
     else:
         reps = list(range(args.replications))
 
+    if not 1 <= len(reps) <= 100:
+        parser.error("replications must be in [1, 100]")
+    output_root = root if len(reps) == 100 else root / "runs" / f"ihdp-{len(reps)}"
+    args.output_dir = args.output_dir or output_root / "reports"
+    args.results_dir = args.results_dir or output_root / "results"
+    if len(reps) < 100 and (args.results_dir.resolve() == root / "results" or args.output_dir.resolve() == root / "reports"):
+        parser.error("Partial runs require a separate output directory")
     print(f"Running CausalLens benchmark across {len(reps)} IHDP replications...")
     summary_df, detailed_df = run_ihdp_benchmark(
         replications=reps,
@@ -75,9 +82,12 @@ def main():
 
     out_file = args.output_dir / "benchmark_summary.md"
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    out_file.write_text(md_content)
+    out_file.write_text(md_content, encoding="utf-8")
     print(f"\nSaved summary markdown report to: {out_file}")
     print(f"Saved detailed CSV to: {args.output_dir / 'benchmark_detailed.csv'}")
+
+    if detailed_df.status.ne("SUCCESS").any():
+        raise SystemExit("One or more fits failed. Inspect the detailed CSV.")
 
 
 if __name__ == "__main__":

@@ -3,7 +3,7 @@ on:
   push:
     branches: [main, feat/data-pipeline, feat/causal-models, 'feat/**', 'fix/**']
   pull_request:
-    branches: [main]
+    branches: [main, feat/unified-ihdp100-benchmark]
 permissions:
   contents: read
 jobs:
@@ -21,3 +21,15 @@ jobs:
       - run: python -m pip install -e '.[eda,dashboard,dev]'
       - run: python -m compileall -q src scripts app.py
       - run: python -m pytest
+
+  experimental-models:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install torch==2.15.0 --index-url https://download.pytorch.org/whl/cpu
+      - run: python -m pip install -e '.[experiments]' pytest
+      - run: python -m pytest -q tests/test_experimental_models.py

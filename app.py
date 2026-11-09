@@ -13,11 +13,11 @@ import plotly.express as px
 import plotly.graph_objects as go
 import seaborn as sns
 import streamlit as st
-import streamlit.components.v1 as components
 
 from causallens.data.eda import balance_table
 from causallens.data.loader import load_ihdp, load_ihdp_truth
-from causallens.evaluation.benchmarks import evaluate_replication, get_default_models
+from causallens.evaluation.benchmarks import evaluate_replication, get_default_models, load_benchmark_artifacts
+from causallens.models.experimental import get_experimental_models
 from causallens.evaluation.policy import (
     compute_paired_benchmark_differences,
     simulate_capacity_constrained_policy,
@@ -661,29 +661,6 @@ def get_trained_models(replication: int, cache_version: int = 4) -> Dict[str, An
 # -----------------------------------------------------------------------------
 # Sidebar Configuration
 # -----------------------------------------------------------------------------
-# Auto-expand sidebar if previously collapsed in browser localStorage
-components.html(
-    """
-    <script>
-    (function() {
-        function expandSidebar() {
-            try {
-                const parentDoc = window.parent.document;
-                const expandBtn = parentDoc.querySelector('[data-testid="stExpandSidebarButton"]');
-                if (expandBtn) {
-                    expandBtn.click();
-                }
-            } catch(e) {}
-        }
-        setTimeout(expandSidebar, 100);
-        setTimeout(expandSidebar, 400);
-    })();
-    </script>
-    """,
-    height=0,
-    width=0,
-)
-
 with st.sidebar:
     st.markdown('<div style="padding-top: 0.5rem; margin-bottom: 1rem;">', unsafe_allow_html=True)
     st.markdown('<div style="font-size: 11px; font-weight: 700; letter-spacing: 0.08em; color: #14B8A6; text-transform: uppercase;">Platform Configuration</div>', unsafe_allow_html=True)
@@ -720,15 +697,15 @@ with st.sidebar:
 # -----------------------------------------------------------------------------
 # Data Loading & Global Metrics
 # -----------------------------------------------------------------------------
-train_data, test_data, truth_data = get_ihdp_data(rep_idx)
-trained_models = get_trained_models(rep_idx)
-
-# Explicit validation: ensure requested model exists with zero silent substitution
+try:
+    train_data, test_data, truth_data = get_ihdp_data(rep_idx)
+    trained_models = get_trained_models(rep_idx)
+except (OSError, ValueError, KeyError) as exc:
+    st.error(f"IHDP data unavailable. Run python scripts/download_ihdp.py --expected-manifest docs/data_manifest.json. {exc}")
+    st.stop()
 if selected_model_id not in trained_models:
-    raise KeyError(
-        f"Selected estimator '{selected_model_id}' is not in trained_models. "
-        f"Available canonical models: {CANONICAL_ESTIMATOR_IDS}"
-    )
+    st.error("Selected estimator is unavailable.")
+    st.stop()
 
 selected_model_obj = trained_models[selected_model_id]
 selected_model_meta = ESTIMATOR_REGISTRY[selected_model_id]
@@ -853,6 +830,7 @@ with tabs[0]:
         ax_smd.invert_yaxis()
         sns.despine(top=True, right=True)
         st.pyplot(fig_smd, use_container_width=True)
+        plt.close(fig_smd)
 
     with col_c2:
         st.markdown('<div class="section-card-title">Propensity Score Common Support & Positivity Overlap</div>', unsafe_allow_html=True)
@@ -885,6 +863,7 @@ with tabs[0]:
         ax_prop.legend(loc="upper right")
         sns.despine(top=True, right=True)
         st.pyplot(fig_prop, use_container_width=True)
+        plt.close(fig_prop)
 
     n_imbalanced = int(np.sum(df_smd["AbsSMD"] > 0.10))
     n_severe = int(np.sum(df_smd["AbsSMD"] > 0.25))
@@ -909,11 +888,13 @@ with tabs[1]:
         unsafe_allow_html=True,
     )
 
-    models_for_eval = {
-        ESTIMATOR_REGISTRY[cid]["display_name"]: trained_models[cid]
-        for cid in CANONICAL_ESTIMATOR_IDS
-    }
-    df_eval = evaluate_replication(rep_idx, models=models_for_eval, data_dir=DATA_DIR)
+    @st.cache_data
+    def replication_results(replication):
+        models = {ESTIMATOR_REGISTRY[cid]["display_name"]: get_trained_models(replication)[cid]
+                  for cid in CANONICAL_ESTIMATOR_IDS}
+        return evaluate_replication(replication, models=models, data_dir=DATA_DIR)
+
+    df_eval = replication_results(rep_idx)
 
     col_e1, col_e2 = st.columns([1.1, 0.9], gap="medium")
 
@@ -982,6 +963,7 @@ with tabs[1]:
         ax_scatter.grid(True, linestyle="--", alpha=0.5)
         sns.despine(top=True, right=True)
         st.pyplot(fig_scatter, use_container_width=True)
+        plt.close(fig_scatter)
 
     st.markdown('<div class="section-card-title" style="margin-top: 1rem;">Predicted Treatment Effect Distributions vs Ground Truth</div>', unsafe_allow_html=True)
     fig_cate, ax_cate = plt.subplots(figsize=(10.5, 3.2))
@@ -1028,6 +1010,7 @@ with tabs[1]:
     ax_cate.legend(loc="upper right", frameon=True)
     sns.despine(top=True, right=True)
     st.pyplot(fig_cate, use_container_width=True)
+    plt.close(fig_cate)
 
     # -------------------------------------------------------------------------
     # Unified 100-Replication Benchmark Results Section
@@ -1039,17 +1022,20 @@ with tabs[1]:
         "Root-PEHE measures individual effect estimation error; ATE Error measures population effect bias; Policy Risk measures decision regret."
     )
 
-    summary_file = Path(__file__).resolve().parent / "results" / "ihdp100_summary.csv"
-    if not summary_file.exists():
-        summary_file = Path(__file__).resolve().parent / "reports" / "benchmark_summary.csv"
+    results_dir = Path(__file__).resolve().parent / "results"
+    df_bench = df_unified = None
+    try:
+        df_unified, df_bench = load_benchmark_artifacts(results_dir, set(get_default_models()))
+    except (ValueError, OSError, KeyError, TypeError) as exc:
+        st.warning(f"Full benchmark artifacts unavailable. Regenerate with --full. {exc}")
 
-    if summary_file.exists():
-        df_bench = pd.read_csv(summary_file)
+    if df_bench is not None:
         bench_cols = [
             c
             for c in [
                 "model",
                 "n_successful",
+                "n_failed",
                 "pehe_summary",
                 "pehe_mean_ci_summary",
                 "pehe_median_ci_summary",
@@ -1064,6 +1050,7 @@ with tabs[1]:
         rename_map = {
             "model": "Causal Estimator",
             "n_successful": "Successful Reps",
+            "n_failed": "Failed Reps",
             "pehe_summary": "Root-PEHE (Mean ± SD)",
             "pehe_mean_ci_summary": "Root-PEHE 95% CI (Mean)",
             "pehe_median_ci_summary": "Root-PEHE Median [95% CI]",
@@ -1103,6 +1090,28 @@ with tabs[1]:
             with col_bf2:
                 st.image(str(fig_dist), caption="Figure 2: Distribution of Errors Across 100 Replications (Log Scale)", use_container_width=True)
 
+
+    with st.expander("Separate experiment with Causal Forest and CFRNet"):
+        extended_dir = results_dir / "extended"
+        try:
+            detail_ext, summary_ext = load_benchmark_artifacts(
+                extended_dir, set(get_default_models()) | set(get_experimental_models())
+            )
+        except (ValueError, OSError, KeyError, TypeError) as exc:
+            st.warning(f"Extended experiment unavailable. {exc}")
+        else:
+            st.caption("All eight estimators were refitted on the same splits in a separate CPU run. Intervals resample replications. The live Explorer uses the original six.")
+            columns = {
+                "model": "Estimator", "n_successful": "Successful", "n_failed": "Failed",
+                "root_pehe_mean": "Mean Root-PEHE", "pehe_mean_ci_summary": "95% CI for mean Root-PEHE",
+                "pehe_median_ci_summary": "Median Root-PEHE [95% CI]", "ate_error_mean": "Mean ATE error",
+                "ate_error_mean_ci_summary": "95% CI for mean ATE error", "policy_risk_mean": "Mean regret",
+                "policy_risk_mean_ci95_low": "Regret CI low", "policy_risk_mean_ci95_high": "Regret CI high",
+                "avg_runtime_sec": "Mean seconds per fit and prediction",
+            }
+            st.dataframe(summary_ext[list(columns)].rename(columns=columns), hide_index=True)
+            st.download_button("Download eight-model experiment (CSV)", detail_ext.to_csv(index=False),
+                               file_name="ihdp100_extended_results.csv", mime="text/csv")
 
 # =============================================================================
 # TAB 3: Counterfactual Explorer
@@ -1181,12 +1190,13 @@ with tabs[2]:
         ax_delta.legend(loc="upper left")
         sns.despine(left=True, top=True, right=True)
         st.pyplot(fig_delta, use_container_width=True)
+        plt.close(fig_delta)
 
     # -------------------------------------------------------------------------
     # Interactive Counterfactual Audit: Ground Truth vs Model Prediction (Held-Out Test Set N=75)
     # -------------------------------------------------------------------------
     st.markdown('<hr style="border-color: #E2E8F0; margin: 1.5rem 0 1rem 0;">', unsafe_allow_html=True)
-    st.markdown('<div class="section-card-title">Held-Out Test Cohort Counterfactual Verification (N=75 Benchmark Ground Truth)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-card-title">Held-Out Test Cohort Counterfactual Verification</div>', unsafe_allow_html=True)
     st.caption(
         "Directly verify the Neyman-Rubin potential outcomes framework. For each held-out test unit, "
         "compare the model's predicted counterfactual outcomes against the benchmark oracle ground truth."
@@ -1218,12 +1228,13 @@ with tabs[2]:
     else:
         default_test_idx = 0
 
+    custom_subject = archetype_mode == "Custom Subject Selection"
     selected_test_idx = st.selectbox(
         "Select Test Subject for Ground Truth Counterfactual Verification",
-        options=list(range(n_test)),
-        index=default_test_idx,
+        options=list(range(n_test)) if custom_subject else [default_test_idx],
         format_func=lambda i: f"Test Subject #{i:02d} | Factual T={int(test_data['T'][i])}, Observed Y={test_data['Y'][i]:.2f}, True tau={truth_data['tau'][i]:+.2f}",
-        key="test_unit_selector",
+        key="test_unit_selector" if custom_subject else f"preset_unit_{rep_idx}_{default_test_idx}",
+        disabled=not custom_subject,
     )
 
     t_obs = int(test_data["T"][selected_test_idx])
@@ -1399,6 +1410,7 @@ with tabs[3]:
             ax_box.set_ylabel("Predicted Treatment Effect (CATE)")
             sns.despine(top=True, right=True)
             st.pyplot(fig_box, use_container_width=True)
+            plt.close(fig_box)
 
         with col_h2:
             st.markdown('<div class="section-card-title">Mean Covariate Profile by Benefit Tier</div>', unsafe_allow_html=True)
@@ -1416,15 +1428,14 @@ with tabs[3]:
     st.markdown('<hr style="border-color: #E2E8F0; margin: 1.5rem 0 1rem 0;">', unsafe_allow_html=True)
     st.markdown('<div class="section-card-title">Interactive Policy Simulator & Resource Allocation Studio</div>', unsafe_allow_html=True)
     st.caption(
-        "Translate causal effect estimates into optimal real-world decision rules under operational constraints. "
-        "Under finite treatment budget or capacity, greedy causal allocation maximizes expected population welfare."
+        "Values average simulated outcomes on this held-out cohort. The oracle allocates up to the same budget to positive true effects. Treat All can exceed the budget. Ties use test-row order."
     )
 
     col_pol_c1, col_pol_c2 = st.columns([1, 1], gap="medium")
     with col_pol_c1:
         capacity_pct = st.slider(
             "Treatment Capacity Budget (% of population)",
-            min_value=10,
+            min_value=0,
             max_value=100,
             value=40,
             step=5,
@@ -1484,7 +1495,7 @@ with tabs[3]:
         st.markdown(f"""
         <div class="metric-card">
             <div class="metric-label">Net Welfare Gain</div>
-            <div class="metric-value" style="color: #15803D;">+{m_strat['gain_vs_treat_none']:.2f}</div>
+            <div class="metric-value" style="color: #15803D;">{m_strat['gain_vs_treat_none']:+.2f}</div>
             <div class="metric-meta">Improvement over Status Quo</div>
         </div>
         """, unsafe_allow_html=True)
@@ -1529,7 +1540,7 @@ with tabs[3]:
 
     with col_ptable:
         st.markdown('<div class="section-card-title">Prioritized Units Allocation Sample (Top 8 Units)</div>', unsafe_allow_html=True)
-        order_idx = np.argsort(-ite_test)
+        order_idx = np.argsort(-ite_test, kind='stable')
         top_indices = order_idx[:8]
         top_df = pd.DataFrame({
             "Unit #": [f"#{i:02d}" for i in top_indices],
@@ -1698,13 +1709,7 @@ with tabs[4]:
     )
     st.plotly_chart(fig_heat, use_container_width=True)
 
-    st.markdown("""
-    <div class="research-notice">
-        <strong>Architectural Finding</strong>: <strong>T-Learner, X-Learner, IPW + Weighted Reg, and Doubly Robust (AIPW)</strong> 
-        demonstrate strong consensus with pairwise mean differences &lt; 0.32 units. In contrast, <strong>Naive Unadjusted Difference</strong> 
-        diverges by over 0.70 units from all doubly robust and meta-learner architectures, empirically confirming confounding adjustment in observational data.
-    </div>
-    """, unsafe_allow_html=True)
+    st.caption("Each cell gives the mean absolute difference between two estimators on the selected test cohort.")
 
 # =============================================================================
 # TAB 6: Evidence Assessment
@@ -1814,12 +1819,10 @@ with tabs[5]:
         "Includes Wilcoxon signed-rank and paired t-test p-values alongside 95% bootstrap confidence intervals."
     )
 
-    unified_csv_path = Path(__file__).resolve().parent / "results" / "ihdp100_unified_results.csv"
-    if unified_csv_path.exists():
-        df_unified = pd.read_csv(unified_csv_path)
-        paired_df = compute_paired_benchmark_differences(
-            df_unified, baseline_model="T-Learner", metric_col="root_pehe"
-        )
+    paired_df = pd.DataFrame()
+    if df_unified is not None:
+        paired_df = compute_paired_benchmark_differences(df_unified)
+    if not paired_df.empty:
         disp_paired = pd.DataFrame({
             "Competitor Architecture": paired_df["competitor"],
             "Mean Delta (Root-PEHE)": paired_df["mean_difference"].apply(lambda v: f"{v:+.4f}"),
@@ -1827,17 +1830,12 @@ with tabs[5]:
             "T-Learner Win Rate": paired_df["baseline_win_rate_pct"].apply(lambda v: f"{v:.1f}%"),
             "Wilcoxon p-val": paired_df["wilcoxon_pval"].apply(lambda p: f"{p:.2e}"),
             "Paired t p-val": paired_df["paired_t_pval"].apply(lambda p: f"{p:.2e}"),
-            "Significant (p < 0.05)": paired_df["statistically_significant_05"].apply(lambda s: "YES (p < 0.001)" if s else "NO"),
+            "Matched fits": paired_df["n_replications"],
+            "Holm p (Wilcoxon)": paired_df["wilcoxon_holm"],
+            "Holm p (paired t)": paired_df["paired_t_holm"],
         })
         st.dataframe(disp_paired, use_container_width=True, hide_index=True)
-
-        st.markdown("""
-        <div class="research-notice">
-            <strong>Methodological Insight</strong>: Across all 100 benchmark replications, <strong>T-Learner</strong> achieves a statistically significant 
-            advantage over all other estimators (Wilcoxon p &lt; 10<sup>-9</sup> for all comparisons; win rates: 92% vs AIPW, 86% vs IPW, 74% vs X-Learner). 
-            Separate unconstrained outcome regressions for treated and control arms avoid cross-arm regularization bias in continuous-outcome IHDP settings.
-        </div>
-        """, unsafe_allow_html=True)
+        st.caption("Five comparisons per test family. Intervals resample matched simulation replications. Shared cohort and selection of the baseline limit population inference.")
 
     # Export Reliability Dossier
     dossier_payload = {
