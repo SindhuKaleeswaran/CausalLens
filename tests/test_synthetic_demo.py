@@ -60,8 +60,8 @@ def test_public_ui_never_reads_research_data_or_downloads(tmp_path, monkeypatch)
     assert len(at.tabs) == 6
     assert 'SYNTHETIC DEMONSTRATION' in at.info[0].value
     assert len(at.get('download_button')) == 2
-    for name in at.selectbox[1].options:
-        at.selectbox[1].select(name).run()
+    for name in at.sidebar.selectbox[1].options:
+        at.sidebar.selectbox[1].select(name).run()
         assert not at.exception
     at.slider[1].set_value(0).run()
     assert not at.exception
@@ -69,7 +69,7 @@ def test_public_ui_never_reads_research_data_or_downloads(tmp_path, monkeypatch)
     assert strategy.loc['Model-Guided', 'treated_count'] == 0
     at.slider[0].set_value(149).run()
     at.slider[2].set_value(3.0).run()
-    at.selectbox[0].select(9).run()
+    at.sidebar.selectbox[0].select(9).run()
     assert not at.exception
     assert not (tmp_path / 'private-data').exists()
     st.cache_data.clear()

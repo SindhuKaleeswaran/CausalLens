@@ -4,12 +4,23 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import streamlit as st
-from causallens.dashboard import json_safe
+from causallens.dashboard import effect_groups, json_safe
+from causallens.evaluation.robustness import sensitivity_unobserved_confounding
+from public_demo_utils import synthetic_balance, disagreement_matrix, synthetic_profiles
 from causallens.synthetic_demo import FEATURES, GENERATOR_VERSION, fit_example
 from causallens.evaluation.metrics import pehe_score
 from causallens.evaluation.policy import simulate_capacity_constrained_policy
 
 st.set_page_config(page_title='CausalLens · Synthetic demo', page_icon='🔬', layout='wide')
+def chart(fig, width='stretch'):
+    """Consistent responsive charts using the existing slate/teal theme."""
+    fig.update_layout(template='plotly_white', font=dict(color='#0F172A'),
+                      margin=dict(l=20, r=20, t=55, b=30),
+                      colorway=['#0F766E', '#2563EB', '#D97706', '#9333EA', '#64748B', '#DC2626'],
+                      legend=dict(orientation='h', y=-0.25), height=400)
+    st.plotly_chart(fig, width=width, config={'displaylogo': False})
+
+
 st.title('CausalLens')
 st.info('SYNTHETIC DEMONSTRATION — all features, assignments, and outcomes are independently generated. '
         'No IHDP records or benchmark findings are displayed. These examples are not clinical evidence.')
@@ -47,7 +58,29 @@ with tabs[0]:
     st.subheader('Association is a starting point')
     st.write('Treatment assignment depends on features A and B, which also influence outcomes. '
              'The unadjusted outcome difference can therefore mix treatment effects with confounding.')
-    st.plotly_chart(px.box(frame, x='Treatment', y='Observed synthetic outcome', color='Treatment'), width='stretch')
+    chart(px.box(frame, x='Treatment', y='Observed synthetic outcome', color='Treatment'), width='stretch')
+    st.subheader('Training covariate balance and treatment overlap')
+    left, right = st.columns(2)
+    with left:
+        balance = synthetic_balance(train)
+        fig = px.bar(balance, x='Signed SMD', y='Feature', orientation='h',
+                     title='Synthetic covariate imbalance')
+        for threshold in (-0.1, 0.1):
+            fig.add_vline(x=threshold, line_dash='dot', line_color='#64748B')
+        chart(fig)
+    with right:
+        x = train['X']
+        propensity = 0.15 + 0.7 / (1 + np.exp(-(0.8*x[:, 0] - 0.5*x[:, 1])))
+        overlap = pd.DataFrame({'Oracle assignment probability': propensity,
+                                'Arm': np.where(train['T'] == 1, 'Treated', 'Control')})
+        fig = px.histogram(overlap, x='Oracle assignment probability', color='Arm',
+                           histnorm='probability density', barmode='overlay', opacity=0.6,
+                           title='Synthetic treatment overlap', nbins=20)
+        fig.update_xaxes(range=[0, 1])
+        chart(fig)
+    st.caption('Training data only. Signed SMD is treated minus control mean divided by pooled within-arm SD; '
+               '±0.1 is a descriptive guide, not a validity test. Overlap uses known generator probabilities, '
+               'not fitted propensity scores; neither plot rules out hidden confounding in real studies.')
     st.dataframe(frame[FEATURES + ['Treatment', 'Observed synthetic outcome']], hide_index=True)
     with st.expander('How the synthetic data are generated'):
         st.markdown('Features A–E are independent standard normal draws. Treatment probability is '
@@ -58,42 +91,109 @@ with tabs[0]:
 with tabs[1]:
     st.subheader('Held-out synthetic evaluation')
     st.caption('Actual fits on this generated example. Rankings are illustrative and are not IHDP benchmark results.')
-    st.dataframe(metrics, hide_index=True)
-    st.plotly_chart(px.scatter(frame, x='Oracle synthetic effect', y='Estimated effect',
+    sort_metric = st.selectbox('Compare models by', ['Root-PEHE', 'ATE error', 'Policy regret'],
+                               help='All three errors are lower-is-better on the same held-out synthetic cohort.')
+    labels = {'pehe': 'Root-PEHE', 'ate_error': 'ATE error', 'policy_risk': 'Policy regret'}
+    comparison = metrics.rename(columns=labels).sort_values(sort_metric)
+    st.dataframe(comparison, hide_index=True)
+    for metric in [sort_metric] + [item for item in labels.values() if item != sort_metric]:
+        panel = st.container() if metric == sort_metric else st.expander(metric + ' comparison')
+        with panel:
+            fig = px.bar(comparison, x=metric, y='estimator', orientation='h',
+                         title=metric + ' · lower is better', text_auto='.3f')
+            fig.update_yaxes(title=None, categoryorder='array', categoryarray=comparison['estimator'][::-1])
+            chart(fig)
+    st.caption('Policy regret here compares the positive-effect treatment rule with an unconstrained oracle. '
+               'Capacity-constrained results are in Policy Simulator. Single-seed rankings have no confidence intervals; '
+               'change the example seed to explore variation. Constant-effect models cannot express heterogeneity.')
+    chart(px.scatter(frame, x='Oracle synthetic effect', y='Estimated effect',
                               color='Treatment'), width='stretch')
+    effects = pd.DataFrame({'Oracle synthetic effect': truth['tau'], 'Estimated effect': pred})
+    chart(px.histogram(effects.melt(var_name='Source', value_name='Synthetic effect'),
+                       x='Synthetic effect', color='Source', barmode='overlay', opacity=0.55,
+                       nbins=25, title='CATE distribution · selected estimator vs oracle'))
+    feature = st.selectbox('Heterogeneity feature', FEATURES,
+                           help='Association between a synthetic covariate and effects; not the effect of changing that covariate.')
+    chart(px.scatter(frame, x=feature, y=['Oracle synthetic effect', 'Estimated effect'],
+                     title='Treatment heterogeneity · held-out synthetic units'))
+    groups = pd.DataFrame({'Predicted-effect group': effect_groups(pred),
+                           'Oracle synthetic effect': truth['tau'], 'Estimated effect': pred})
+    grouped = groups.groupby('Predicted-effect group', observed=True)[['Oracle synthetic effect', 'Estimated effect']].mean().reset_index()
+    chart(px.bar(grouped, x='Predicted-effect group', y=['Oracle synthetic effect', 'Estimated effect'],
+                 barmode='group', title='Mean effects within predicted-effect groups'))
+    st.caption('Groups use the selected model’s predicted effects, keeping ties together. '
+               'Distribution spread describes heterogeneity, not estimation uncertainty.')
     st.write('Root-PEHE measures effect prediction error; ATE error measures average-effect error. '
              'Lower is better. The oracle is known only because this is a simulation.')
     st.download_button('Download synthetic evaluation (CSV)', metrics.to_csv(index=False),
                        'causallens_synthetic_evaluation.csv', 'text/csv')
 with tabs[2]:
     st.subheader('Inspect a fictional unit')
-    unit = st.slider('Synthetic unit index', 0, len(frame)-1, 0)
+    profiles = synthetic_profiles(truth, predictions)
+    profile = st.selectbox('Synthetic profile', list(profiles),
+                           help='Presets select fictional held-out units using known synthetic truth or model disagreement.')
+    unit = st.slider('Synthetic unit index', 0, len(frame)-1, 0, disabled=profiles[profile] is not None)
+    if profiles[profile] is not None:
+        unit = profiles[profile]
+    st.caption(f'Selected fictional unit {unit} · {profile}. Presets are illustrative, not representative people.')
     st.dataframe(frame.iloc[[unit]][FEATURES], hide_index=True)
-    st.plotly_chart(px.bar(pd.DataFrame({'Quantity': ['Oracle control mean', 'Oracle treated mean'],
+    chart(px.bar(pd.DataFrame({'Quantity': ['Oracle control mean', 'Oracle treated mean'],
                                        'Synthetic outcome': [truth['mu0'][unit], truth['mu1'][unit]]}),
                           x='Quantity', y='Synthetic outcome'), width='stretch')
-    st.metric('Estimated effect for this synthetic unit', f'{pred[unit]:.3f}')
+    profile_effects = pd.DataFrame({'Estimator': list(predictions),
+                                    'Estimated synthetic effect': [values[unit] for values in predictions.values()]})
+    fig = px.bar(profile_effects, x='Estimated synthetic effect', y='Estimator', orientation='h',
+                 title='Same synthetic profile · six fitted estimators')
+    fig.add_vline(x=float(truth['tau'][unit]), line_dash='dash', line_color='#D97706',
+                  annotation_text='Oracle effect')
+    chart(fig)
+    st.metric('Estimated effect for this synthetic unit' , f'{pred[unit]:.3f}')
     st.caption('Bars are known synthetic mean potential outcomes, not fitted predictions or observations '
                'of two real outcomes. No individual confidence interval is provided.')
 with tabs[3]:
     st.subheader('Allocate a limited treatment budget')
-    capacity = st.slider('Treatment capacity (%)', 0, 100, 40)
+    capacity = st.slider('Treatment capacity (%)', 0, 100, 40, help='Maximum share treated; only positive predicted effects are prioritized.')
     policy = simulate_capacity_constrained_policy(truth['mu0'], truth['mu1'], pred, capacity/100)
     strategy = pd.DataFrame(policy['strategies']).T.rename_axis('Strategy').reset_index()
     st.dataframe(strategy, hide_index=True)
-    st.plotly_chart(px.bar(strategy, x='Strategy', y='policy_value'), width='stretch')
+    chart(px.bar(strategy, x='Strategy', y='policy_value'), width='stretch')
     st.caption('Model-guided allocation prioritizes positive predicted effects within capacity. '
                'The oracle uses known synthetic effects. Treat All is an unconstrained comparator; '
                'its constrained regret is unavailable below 100% capacity. Random value is an expectation.')
 with tabs[4]:
     st.subheader('Disagreement and prediction stress')
+    matrix = disagreement_matrix(predictions)
+    fig = px.imshow(matrix, text_auto='.2f', color_continuous_scale='Teal',
+                    labels={'color': 'Mean absolute effect difference'},
+                    title='Estimator disagreement · synthetic outcome units', aspect='auto')
+    chart(fig)
     disagreement = np.std(np.stack(list(predictions.values())), axis=0)
-    st.plotly_chart(px.histogram(x=disagreement, labels={'x': 'Across-estimator effect standard deviation'}), width='stretch')
-    noise = st.slider('Prediction noise standard deviation', 0.0, 3.0, 0.0, 0.1)
+    chart(px.histogram(x=disagreement, labels={'x': 'Across-estimator effect standard deviation'}), width='stretch')
+    noise = st.slider('Prediction noise standard deviation', 0.0, 3.0, 0.0, 0.1, help='Adds a fixed seeded noise vector scaled by this value; models are not retrained.')
     stressed = pred + np.random.default_rng(904 + seed).normal(size=pred.size)*noise
     st.metric('Root-PEHE after synthetic prediction perturbation', f'{pehe_score(truth["tau"], stressed):.3f}')
+    perturbation = np.random.default_rng(904 + seed).normal(size=pred.size)
+    stress_curve = pd.DataFrame({'Noise standard deviation': np.linspace(0, 3, 16),
+                                'Synthetic Root-PEHE': [pehe_score(truth['tau'], pred + level*perturbation)
+                                                       for level in np.linspace(0, 3, 16)]})
+    fig = px.line(stress_curve, x='Noise standard deviation', y='Synthetic Root-PEHE', markers=True,
+                  title='Prediction stress curve · one seeded perturbation')
+    fig.add_vline(x=noise, line_dash='dot')
+    chart(fig)
     st.caption('This perturbs predictions only; it is not a hidden-confounding analysis or model refit. '
                'Disagreement is not a calibrated uncertainty interval. Neither diagnostic establishes causal validity.')
+    st.subheader('Linear omitted-variable sensitivity · synthetic training data')
+    sensitivity = sensitivity_unobserved_confounding(train['X'], train['T'], train['Y'])
+    sensitivity_display = pd.DataFrame({
+        'Target': ['Attenuate OLS estimate to zero', 'Lose significance at 5%'],
+        'Required partial R² (%)': [sensitivity['robustness_value_point_estimate_percent'],
+                                    sensitivity['robustness_value_significance_percent']]})
+    chart(px.bar(sensitivity_display, x='Required partial R² (%)', y='Target', orientation='h',
+                 text_auto='.2f', title='Cinelli–Hazlett robustness values · linear specification'))
+    st.caption('Reuses the research sensitivity calculation for OLS Y ~ T + X on synthetic training data. '
+               'The values describe equal-strength partial R² with treatment and outcome needed for each target. '
+               'They do not apply to the selected nonlinear estimator or individual effects. The generator has '
+               'observed confounders and a nonlinear outcome term; this linear specification is deliberately limited.')
 with tabs[5]:
     st.subheader('Evidence and limits')
     st.write('These are reproducible synthetic teaching examples, not scientific findings about IHDP or any population. '
@@ -105,6 +205,9 @@ with tabs[5]:
     evidence = json_safe({'data_kind': 'fully synthetic; no IHDP records', 'generator': GENERATOR_VERSION,
                          'seed': seed, 'estimator': name, 'train_units': 600, 'test_units': 150,
                          'evaluation': records, 'policy': policy,
+                         'synthetic_profile': {'selection': profile, 'unit_index': unit},
+                         'prediction_stress': {'noise_sd': noise, 'root_pehe': pehe_score(truth['tau'], stressed)},
+                         'linear_sensitivity': sensitivity,
                          'limits': 'Educational simulation only; no empirical benchmark or clinical claim.'})
     st.download_button('Download synthetic evidence (JSON)', json.dumps(evidence, indent=2, allow_nan=False),
                        'causallens_synthetic_evidence.json', 'application/json')
