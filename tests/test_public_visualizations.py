@@ -12,7 +12,9 @@ from streamlit.testing.v1 import AppTest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'deploy'))
-from public_demo_utils import disagreement_matrix, synthetic_balance, synthetic_profiles
+from public_demo_utils import (
+    comparison_interpretation, disagreement_matrix, naive_association, synthetic_balance, synthetic_profiles,
+)
 from causallens.synthetic_demo import FEATURES, generate_example
 
 
@@ -32,6 +34,72 @@ def test_balance_and_disagreement_definitions():
     assert profiles['Lowest oracle effect'] == 0
     assert profiles['Near-zero oracle effect'] == 1
     assert profiles['Highest oracle effect'] == 2
+
+
+def test_naive_association_matches_arm_means():
+    outcome = np.array([1.0, 2.0, 3.0, 10.0, 11.0, 12.0])
+    treatment = np.array([0, 0, 0, 1, 1, 1])
+    naive = naive_association(outcome, treatment)
+    assert naive == pytest.approx(outcome[treatment == 1].mean() - outcome[treatment == 0].mean())
+
+
+@pytest.mark.parametrize('naive,estimated,oracle,expected_phrase', [
+    (5.0, 2.1, 2.0, 'is closer to the simulated effect than the naive association'),
+    (2.05, 5.0, 2.0, 'is not closer to the simulated effect than the naive association'),
+    (1.0, 3.0, 2.0, "matches the naive association's distance from the simulated effect"),
+])
+def test_comparison_interpretation_verdict_and_no_overclaiming(naive, estimated, oracle, expected_phrase):
+    text = comparison_interpretation(naive, estimated, oracle, 'X-Learner')
+    assert expected_phrase in text
+    assert 'X-Learner' in text
+    # Must not assert that confounding is the sole or proven cause of any gap.
+    assert 'entirely' not in text.lower()
+    assert 'proves' not in text.lower() and 'proof that' in text.lower()
+
+
+def test_kpi_cards_share_evaluation_population_and_update_correctly():
+    at = AppTest.from_file(str(ROOT / 'deploy/streamlit_app.py'), default_timeout=60).run()
+    assert not at.exception
+
+    def metric_value(label):
+        return float(next(m for m in at.metric if m.label == label).value)
+
+    def caption_with(substring):
+        return next(c.value for c in at.caption if substring in c.value)
+
+    estimator = at.sidebar.selectbox[1].value
+    assert any(m.label == f'Estimated effect · {estimator}' for m in at.metric)
+    naive_before = metric_value('Naive observed association')
+    oracle_before = metric_value('True simulated effect (oracle)')
+    interpretation = caption_with('Naive association')
+    assert f'{naive_before:.3f}' in interpretation and f'{oracle_before:.3f}' in interpretation
+    assert 'entirely' not in interpretation.lower()
+
+    # Switching estimators must not change the naive association or the oracle effect:
+    # all three KPI cards must stay pinned to the same held-out population.
+    at.sidebar.selectbox[1].select('Naive (Unadjusted)').run()
+    assert not at.exception
+    assert metric_value('Naive observed association') == pytest.approx(naive_before)
+    assert metric_value('True simulated effect (oracle)') == pytest.approx(oracle_before)
+    assert any(m.label == 'Estimated effect · Naive (Unadjusted)' for m in at.metric)
+
+    # Switching the seed changes the held-out population, so the naive/oracle values may change.
+    at.sidebar.selectbox[0].select(3).run()
+    assert not at.exception
+    naive_seed3 = metric_value('Naive observed association')
+    oracle_seed3 = metric_value('True simulated effect (oracle)')
+    assert (naive_seed3, oracle_seed3) != (naive_before, oracle_before)
+
+
+def test_guided_workflow_and_provenance_note_present_once():
+    at = AppTest.from_file(str(ROOT / 'deploy/streamlit_app.py'), default_timeout=60).run()
+    assert not at.exception
+    assert any('Explore Association' in c.value for c in at.markdown)
+    provenance = [e.label for e in at.expander if 'Research vs. public demonstration' in (e.label or '')]
+    assert len(provenance) == 1
+    # The lengthy provenance explanation should live in one place, not be repeated verbatim on every tab.
+    occurrences = sum('IHDP-100' in m.value for m in at.markdown)
+    assert occurrences == 1
 
 
 def test_all_public_views_controls_and_download_payloads(monkeypatch):
