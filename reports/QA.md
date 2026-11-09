@@ -7,7 +7,7 @@ Windows x64, CPython 3.13.12, November 8, 2026. Tests ran against the isolated w
 | Check | Command | Observed result |
 |---|---|---|
 | Baseline | python -m pytest -q at 53c9ca7 | 114 passed, 0 failed, 0 skipped, 53 warnings, 180.38 s. |
-| Initial adversarial cases | python -m pytest tests/test_astra_regressions.py -q before fixes | 24 failed, 1 passed. After fixes, the targeted suite with policy and evaluation tests passed 42/42. |
+| Initial adversarial cases | python -m pytest tests/test_audit_regressions.py -q before fixes | 24 failed, 1 passed. After fixes, the targeted suite with policy and evaluation tests passed 42/42. |
 | Data pipeline | python scripts/validate_ihdp.py | 200 split records, 0 failures; hashes unchanged. |
 | Original benchmark | python scripts/evaluate_benchmark.py --full | 100/100 replications, 600/600 successes; baseline and audited versions both executed. |
 | Independent metrics | python scripts/verify_ihdp100.py | 600 unique records, 12 scientific fields each and 36 distinct bootstrap intervals verified. |

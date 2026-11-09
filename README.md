@@ -39,7 +39,7 @@ CausalLens implements 6 canonical causal estimators under a unified scikit-learn
 
 Evaluated across all 100 Infant Health and Development Program (IHDP) replications under strict train/test split isolation (Train $N=672$, Held-Out Test $N=75$):
 
-The original six-model run completed 600/600 fits. T-Learner mean Root-PEHE was 2.265 (95% bootstrap interval 1.568–3.183), median 0.915 (0.748–1.053). The separate optional eight-model experiment completed 800/800 fits. CFRNet-MMD averaged 1.472 and the honest causal forest averaged 3.849. See the [complete comparison and statistical verification](reports/ASTRA_SCIENTIFIC_VERIFICATION.md).
+The original six-model run completed 600/600 fits. T-Learner mean Root-PEHE was 2.265 (95% bootstrap interval 1.568–3.183), median 0.915 (0.748–1.053). The separate optional eight-model experiment completed 800/800 fits. CFRNet-MMD averaged 1.472 and the honest causal forest averaged 3.849. See the [complete comparison and statistical verification](reports/scientific_verification.md).
 
 To reproduce the extended experiment, install CPU PyTorch 2.15.0 and the experiments extra, then run:
 
@@ -100,7 +100,7 @@ Open your browser to `http://localhost:8501`.
 # Run all unit, integration, and headless interaction tests
 pytest
 ```
-See [final QA](reports/ASTRA_FINAL_QA.md) for executed checks and environment details.
+See [final QA](reports/QA.md) for executed checks and environment details.
 
 ---
 

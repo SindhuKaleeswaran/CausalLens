@@ -1,4 +1,4 @@
-> Historical six-model report. See the [independent verification and separate eight-model experiment](ASTRA_SCIENTIFIC_VERIFICATION.md) for current results and limitations.
+> Historical six-model report. See the [independent verification and separate eight-model experiment](scientific_verification.md) for current results and limitations.
 
 # CausalLens: Unified IHDP-100 Benchmark Report
 

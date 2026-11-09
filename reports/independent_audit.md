@@ -1,6 +1,6 @@
 # Independent repository audit
 
-**Verdict — conditionally ready for a research demonstration.** The original six estimators and separate eight-estimator experiment reproduced across 100 IHDP replications. Clinical deployment and population-level validation are outside the evidence. See [scientific verification](ASTRA_SCIENTIFIC_VERIFICATION.md) and [executed QA](ASTRA_FINAL_QA.md).
+**Verdict — conditionally ready for a research demonstration.** The original six estimators and separate eight-estimator experiment reproduced across 100 IHDP replications. Clinical deployment and population-level validation are outside the evidence. See [scientific verification](scientific_verification.md) and [executed QA](QA.md).
 
 ## Revision and coordination
 
