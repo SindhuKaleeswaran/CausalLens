@@ -14,6 +14,7 @@ import plotly.graph_objects as go
 import seaborn as sns
 import streamlit as st
 
+from causallens.dashboard import effect_groups, format_metric, json_safe
 from causallens.data.eda import balance_table
 from causallens.data.loader import load_ihdp, load_ihdp_truth
 from causallens.evaluation.benchmarks import evaluate_replication, get_default_models, load_benchmark_artifacts
@@ -77,12 +78,12 @@ configure_matplotlib_style()
 st.set_page_config(
     page_title="CausalLens | Causal Investigation Workspace",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="auto",
 )
 
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
 
     /* 1. Global Viewport & Container Reset (Forced Unified Light Canvas) */
     html, body, .stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"], main, .main, [data-testid="stMainBlockContainer"], .block-container {
@@ -309,7 +310,7 @@ st.markdown("""
         background-color: transparent !important;
         margin-bottom: 1.5rem !important;
         overflow-x: auto !important;
-        scrollbar-width: none !important;
+        scrollbar-width: thin !important;
     }
     .stTabs [data-baseweb="tab"] {
         height: 38px !important;
@@ -547,6 +548,31 @@ st.markdown("""
     }
     .delta-warning { color: #B45309 !important; font-weight: 700; }
     .delta-neutral { color: #0F766E !important; font-weight: 700; }
+    /* Reading order and responsive research overview. */
+    [data-testid="stSidebar"] p, [data-testid="stSidebar"] p * { color: #CBD5E1 !important; }
+    .app-header { padding: 0; margin-bottom: 0; border-bottom: 0; }
+    .context-pills { align-items: flex-start; }
+    .context-pill-row { justify-content: flex-start; }
+    .block-container { padding-top: 3.25rem !important; }
+    .journey { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 16px 0; }
+    .journey div { background: #FFFFFF; border: 1px solid #CBD5E1; border-radius: 8px; padding: 12px; font-size: 0.9rem; }
+    .journey strong { display: block; color: #0F766E; margin-bottom: 5px; }
+    .section-card-title { font-size: 0.85rem !important; text-transform: none !important; letter-spacing: 0 !important; }
+    .status-badge { display: inline-block; padding: 4px 9px; border-radius: 4px; background: #F1F5F9; border: 1px solid #CBD5E1; font-size: 0.8rem; }
+    .badge-warning, .badge-critical { background: #FFFBEB; border-color: #D97706; }
+    [data-testid="stSidebar"] [data-baseweb="select"] > div { background: #1E293B !important; }
+    @media (max-width: 960px) {
+        .app-header { flex-direction: column; gap: 12px; }
+        .context-pills { align-items: flex-start; }
+        .context-pill-row { justify-content: flex-start; }
+        .journey { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 600px) {
+        .journey { grid-template-columns: 1fr; gap: 6px; }
+        .app-title { font-size: 1.8rem; }
+        .context-pill { white-space: normal; }
+        .metric-grid { grid-template-columns: 1fr !important; }
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -596,7 +622,7 @@ ESTIMATOR_REGISTRY: Dict[str, Dict[str, Any]] = {
     "naive": {
         "display_name": "Naive (Unadjusted)",
         "short_name": "Naive",
-        "description": "Unadjusted difference in sample means (biased under confounding)",
+        "description": "Unadjusted group difference; may mix treatment effects and baseline differences",
         "aliases": ["Naive (Unadjusted)", "Naive", "naive"],
     },
 }
@@ -606,7 +632,7 @@ CANONICAL_ESTIMATOR_IDS = list(ESTIMATOR_REGISTRY.keys())
 # -----------------------------------------------------------------------------
 # Data & Model Caching
 # -----------------------------------------------------------------------------
-@st.cache_data
+@st.cache_data(max_entries=8, show_spinner=False)
 def get_ihdp_data(replication: int) -> Tuple[Dict[str, np.ndarray], Dict[str, np.ndarray], Dict[str, np.ndarray]]:
     """Load train, test, and ground-truth oracle potential outcomes for IHDP replication."""
     train = load_ihdp(replication, split="train", data_dir=DATA_DIR)
@@ -615,7 +641,7 @@ def get_ihdp_data(replication: int) -> Tuple[Dict[str, np.ndarray], Dict[str, np
     return train, test, truth
 
 
-@st.cache_resource
+@st.cache_resource(max_entries=4, show_spinner=False)
 def get_trained_models(replication: int, cache_version: int = 4) -> Dict[str, Any]:
     """Train the default suite of causal estimators on the observational training split.
 
@@ -658,6 +684,23 @@ def get_trained_models(replication: int, cache_version: int = 4) -> Dict[str, An
     return full_dict
 
 
+@st.cache_data(max_entries=4, show_spinner=False)
+def cached_benchmark_artifacts(directory, names, signature):
+    """Cache validated artifacts; file stat signature invalidates replaced files."""
+    return load_benchmark_artifacts(directory, set(names))
+
+
+def benchmark_artifacts(directory, names):
+    signature = tuple((path.stat().st_mtime_ns, path.stat().st_size) for path in
+                      (directory / "ihdp100_unified_results.csv", directory / "ihdp100_summary.csv"))
+    return cached_benchmark_artifacts(directory, tuple(sorted(names)), signature)
+
+
+@st.cache_data(max_entries=4, show_spinner=False)
+def paired_comparisons(detail):
+    return compute_paired_benchmark_differences(detail)
+
+
 # -----------------------------------------------------------------------------
 # Sidebar Configuration
 # -----------------------------------------------------------------------------
@@ -697,11 +740,28 @@ with st.sidebar:
 # -----------------------------------------------------------------------------
 # Data Loading & Global Metrics
 # -----------------------------------------------------------------------------
+st.markdown("## CausalLens · When can correlation mislead us?")
+st.markdown(
+    "**CausalLens** compares an unadjusted group difference with causal-model estimates, "
+    "then checks those estimates against a known benchmark truth."
+)
+st.info(
+    "Research demonstration • IHDP-100 uses real baseline covariates with simulated outcomes. "
+    "These are not observed clinical treatment effects or medical recommendations. "
+    "Results are provisional pending final modeling-owner approval."
+)
 try:
-    train_data, test_data, truth_data = get_ihdp_data(rep_idx)
-    trained_models = get_trained_models(rep_idx)
-except (OSError, ValueError, KeyError) as exc:
-    st.error(f"IHDP data unavailable. Run python scripts/download_ihdp.py --expected-manifest docs/data_manifest.json. {exc}")
+    with st.spinner("Loading the selected IHDP replication…"):
+        train_data, test_data, truth_data = get_ihdp_data(rep_idx)
+except (OSError, ValueError, KeyError):
+    st.error("IHDP data unavailable or invalid. The demo needs both verified train and test archives.")
+    st.caption("For the demo maintainer: follow the dataset acquisition and checksum instructions in README.md. Raw archives are not bundled with the app.")
+    st.stop()
+try:
+    with st.spinner("Preparing six estimators for this replication; subsequent interactions use cached fits…"):
+        trained_models = get_trained_models(rep_idx)
+except (OSError, ValueError, KeyError, RuntimeError):
+    st.error("Model initialization failed for this replication. Try a different replication or contact the demo maintainer.")
     st.stop()
 if selected_model_id not in trained_models:
     st.error("Selected estimator is unavailable.")
@@ -728,11 +788,6 @@ cross_split_difference = naive_diff - oracle_ate
 # -----------------------------------------------------------------------------
 st.markdown(f"""
 <div class="app-header">
-    <div class="app-brand">
-        <div class="app-micro-badge">Causal Investigation & Decision Intelligence</div>
-        <div class="app-title">CausalLens</div>
-        <div class="app-subtitle">Observational confounding diagnosis, causal estimation, and refutation testing</div>
-    </div>
     <div class="context-pills">
         <div class="context-pill-row">
             <div class="context-pill">Benchmark: <span class="context-pill-strong">IHDP-100</span></div>
@@ -762,9 +817,9 @@ st.markdown(f"""
         <div class="kpi-desc">Test mean(mu1 - mu0)</div>
     </div>
     <div class="kpi-segment">
-        <div class="kpi-title">Cross-Split Difference</div>
-        <div class="kpi-number {'delta-warn' if abs(cross_split_difference) > 0.2 else 'delta-teal'}">{cross_split_difference:+.2f}</div>
-        <div class="kpi-desc">Train association minus test oracle; descriptive only</div>
+        <div class="kpi-title">Estimated Test Mean Effect</div>
+        <div class="kpi-number">{selected_model_obj.estimate_ate(test_data["X"]):+.2f}</div>
+        <div class="kpi-desc">{selected_model_meta["short_name"]}; mean predicted CATE on test covariates</div>
     </div>
     <div class="kpi-segment">
         <div class="kpi-title">Treatment Allocation</div>
@@ -773,6 +828,27 @@ st.markdown(f"""
     </div>
 </div>
 """, unsafe_allow_html=True)
+
+st.caption(f"IHDP-100 • replication {rep_idx:02d} • {selected_model_display} • original archived feature scale, no additional standardization • fixed model defaults. Association uses training rows; model and oracle means use test rows.")
+st.markdown("""
+<div class="journey">
+  <div><strong>1 · Question the association</strong>Compare groups and inspect baseline imbalance.</div>
+  <div><strong>2 · Compare adjusted estimates</strong>Check model errors against simulated ground truth.</div>
+  <div><strong>3 · Explore individual estimates</strong>Inspect profiles, effect groups and a simulated policy.</div>
+  <div><strong>4 · Assess the evidence</strong>Stress-test predictions and read the assumptions.</div>
+</div>
+""", unsafe_allow_html=True)
+with st.expander("How to read this demo: terms, assumptions and uncertainty"):
+    st.markdown(
+        "**Association** is a difference between observed groups. **ATE** is an average treatment effect; "
+        "**CATE** is an expected treatment effect conditional on a covariate profile. "
+        "The **oracle** is known only because outcomes were simulated.\n\n"
+        "Causal interpretation requires consistency, no interference, sufficient overlap and no unmeasured confounding. "
+        "Diagnostics cannot establish these assumptions. **Prediction uncertainty** concerns a model's estimates; "
+        "**identification uncertainty** concerns whether a causal effect can be recovered under the assumptions. "
+        "No individual prediction intervals are supplied here. Benchmark intervals resample simulation replications "
+        "and are not clinical confidence intervals or proof of identification."
+    )
 
 # -----------------------------------------------------------------------------
 # Navigation Tabs (6 Professional Scientific Sections)
@@ -793,12 +869,24 @@ with tabs[0]:
     st.markdown('<div class="section-header">Covariate Imbalance & Overlap Diagnosis</div>', unsafe_allow_html=True)
     st.markdown(
         '<div class="section-description">'
-        'In observational data, non-random treatment assignment induces systematic imbalances between treated '
-        'and control cohorts. Standard outcome comparisons conflate pre-treatment baseline advantages with the '
+        'In observational data, non-random treatment assignment can create imbalances between treated '
+        'and control cohorts. Unadjusted comparisons may mix baseline differences with the '
         'true causal effect of the intervention.'
         '</div>',
         unsafe_allow_html=True,
     )
+
+    st.markdown("#### What does the unadjusted comparison show?")
+    association_frame = pd.DataFrame({
+        "Group": np.where(train_data["T"] == 1, "Treated", "Control"),
+        "Simulated factual outcome": train_data["Y"],
+    })
+    fig_association = px.box(association_frame, x="Simulated factual outcome", y="Group", color="Group",
+                             color_discrete_map={"Treated": "#0F766E", "Control": "#64748B"},
+                             points=False, template="plotly_white")
+    fig_association.update_layout(height=230, showlegend=False, margin=dict(l=10, r=10, t=10, b=10))
+    st.plotly_chart(fig_association, use_container_width=True)
+    st.caption("Training split only. Boxes show outcome distributions; the unadjusted mean difference above is an association, not an identified causal effect.")
 
     col_c1, col_c2 = st.columns([1, 1], gap="medium")
 
@@ -871,7 +959,7 @@ with tabs[0]:
     st.markdown(f"""
     <div class="research-notice">
         <strong>Methodological Finding</strong>: <strong>{n_imbalanced} of 25</strong> baseline covariates exhibit substantial imbalance (|SMD| > 0.10), with <strong>{n_severe}</strong> covariates exceeding severe imbalance (|SMD| > 0.25). 
-        The training association ({naive_diff:.2f}) and test oracle mean effect ({oracle_ate:.2f}) describe different samples. Their difference ({cross_split_difference:+.2f}) is not an estimate of confounding bias. Imbalance and empirical overlap are descriptive diagnostics, not proof of confounding or population positivity.
+        <strong>Cross-Split Difference (descriptive only)</strong>: The training association ({naive_diff:.2f}) and test oracle mean effect ({oracle_ate:.2f}) describe different samples. Their difference ({cross_split_difference:+.2f}) is not an estimate of confounding bias. Imbalance and empirical overlap are descriptive diagnostics, not proof of confounding or population positivity.
     </div>
     """, unsafe_allow_html=True)
 
@@ -882,13 +970,13 @@ with tabs[1]:
     st.markdown('<div class="section-header">Causal Estimator Evaluation on Held-Out Test Data</div>', unsafe_allow_html=True)
     st.markdown(
         '<div class="section-description">'
-        'Evaluation against ground-truth potential outcomes on the held-out test split (N=75). '
+        f'Evaluation against simulated ground truth on the held-out test split (N={n_test}). '
         'Metrics assess both heterogeneous effect precision (PEHE) and population parameter accuracy (ATE Error).'
         '</div>',
         unsafe_allow_html=True,
     )
 
-    @st.cache_data
+    @st.cache_data(max_entries=8, show_spinner=False)
     def replication_results(replication):
         models = {ESTIMATOR_REGISTRY[cid]["display_name"]: get_trained_models(replication)[cid]
                   for cid in CANONICAL_ESTIMATOR_IDS}
@@ -907,7 +995,7 @@ with tabs[1]:
             "ate_error": "|ATE Err|",
             "ate_pred": "Est ATE",
             "ate_true": "True ATE",
-            "policy_risk": "Policy Risk",
+            "policy_risk": "Policy Regret",
             "total_time_sec": "Runtime (s)",
         })
 
@@ -916,9 +1004,9 @@ with tabs[1]:
             "|ATE Err|": "{:.3f}",
             "Est ATE": "{:.3f}",
             "True ATE": "{:.3f}",
-            "Policy Risk": "{:.4f}",
+            "Policy Regret": "{:.4f}",
             "Runtime (s)": "{:.4f}",
-        }).highlight_min(subset=["Root PEHE", "|ATE Err|", "Policy Risk"], color="#CCFBF1")
+        }, na_rep="N/A").highlight_min(subset=["Root PEHE", "|ATE Err|", "Policy Regret"], color="#CCFBF1")
 
         st.dataframe(styled_df, use_container_width=True, hide_index=True)
 
@@ -931,39 +1019,18 @@ with tabs[1]:
 
     with col_e2:
         st.markdown('<div class="section-card-title">Precision vs Parameter Accuracy Trade-Off</div>', unsafe_allow_html=True)
-        fig_scatter, ax_scatter = plt.subplots(figsize=(5.5, 3.8))
-
-        colors_map = {
-            ESTIMATOR_REGISTRY["t_learner"]["display_name"]: "#0D9488",
-            ESTIMATOR_REGISTRY["x_learner"]["display_name"]: "#0284C7",
-            ESTIMATOR_REGISTRY["ipw"]["display_name"]: "#6366F1",
-            ESTIMATOR_REGISTRY["doubly_robust"]["display_name"]: "#059669",
-            ESTIMATOR_REGISTRY["s_learner"]["display_name"]: "#D97706",
-            ESTIMATOR_REGISTRY["naive"]["display_name"]: "#DC2626",
-        }
-
-        for _, row in df_eval.iterrows():
-            m_name = row["model"]
-            c = colors_map.get(m_name, "#475569")
-            ax_scatter.scatter(row["ate_error"], row["pehe"], color=c, s=70, zorder=4)
-            # Offset labels for readability
-            short_lbl = m_name.split(" ")[0]
-            ax_scatter.annotate(
-                short_lbl,
-                (row["ate_error"], row["pehe"]),
-                textcoords="offset points",
-                xytext=(6, 4),
-                fontsize=8.0,
-                color="#334155",
-                fontweight="500",
-            )
-
-        ax_scatter.set_xlabel("Absolute ATE Error (|ATE_hat - ATE_true|)")
-        ax_scatter.set_ylabel(r"Heterogeneous Precision ($\sqrt{\epsilon_{PEHE}}$)")
-        ax_scatter.grid(True, linestyle="--", alpha=0.5)
-        sns.despine(top=True, right=True)
-        st.pyplot(fig_scatter, use_container_width=True)
-        plt.close(fig_scatter)
+        fig_scatter = px.scatter(
+            df_eval.dropna(subset=["ate_error", "pehe"]), x="ate_error", y="pehe", color="model",
+            hover_name="model", hover_data={"ate_error": ":.3f", "pehe": ":.3f", "model": False},
+            labels={"ate_error": "Absolute ATE error ↓", "pehe": "Root-PEHE ↓", "model": "Estimator"},
+            template="plotly_white",
+        )
+        fig_scatter.update_traces(marker_size=12)
+        fig_scatter.update_layout(height=360, margin=dict(l=10, r=10, t=10, b=10),
+                                  legend=dict(orientation="h", y=-0.25))
+        st.plotly_chart(fig_scatter, use_container_width=True)
+        st.caption("Lower is better on both axes. Hover to identify overlapping estimators.")
+    st.caption("Root-PEHE: root mean squared effect error. Absolute ATE error: difference between estimated and oracle test mean effects. Policy regret: loss versus the benchmark oracle policy. All use simulated outcome units; N/A means undefined or unavailable.")
 
     st.markdown('<div class="section-card-title" style="margin-top: 1rem;">Predicted Treatment Effect Distributions vs Ground Truth</div>', unsafe_allow_html=True)
     fig_cate, ax_cate = plt.subplots(figsize=(10.5, 3.2))
@@ -1019,13 +1086,13 @@ with tabs[1]:
     st.markdown('<div class="section-card-title">Unified 100-Replication Benchmark Evaluation (All 100 Replications, 600 Fits)</div>', unsafe_allow_html=True)
     st.caption(
         "Scientific evaluation across all 100 IHDP replications under strict split isolation (train N=672, test N=75). "
-        "Root-PEHE measures individual effect estimation error; ATE Error measures population effect bias; Policy Risk measures decision regret."
+        "Root-PEHE measures individual effect estimation error; absolute ATE error measures test mean effect error; policy regret measures loss against an oracle decision rule."
     )
 
     results_dir = Path(__file__).resolve().parent / "results"
     df_bench = df_unified = None
     try:
-        df_unified, df_bench = load_benchmark_artifacts(results_dir, set(get_default_models()))
+        df_unified, df_bench = benchmark_artifacts(results_dir, set(get_default_models()))
     except (ValueError, OSError, KeyError, TypeError) as exc:
         st.warning(f"Full benchmark artifacts unavailable. Regenerate with --full. {exc}")
 
@@ -1061,7 +1128,7 @@ with tabs[1]:
             "avg_runtime_sec": "Avg Runtime (s)",
         }
         df_bench_disp = df_bench[bench_cols].rename(columns=rename_map)
-        st.dataframe(df_bench_disp, use_container_width=True, hide_index=True)
+        st.dataframe(df_bench_disp.style.format(na_rep="N/A"), use_container_width=True, hide_index=True)
 
         col_b_dl1, col_b_dl2 = st.columns([1, 1])
         with col_b_dl1:
@@ -1081,20 +1148,25 @@ with tabs[1]:
                     mime="text/csv",
                 )
 
-        fig_comp = Path(__file__).resolve().parent / "reports" / "figures" / "benchmark_pehe_ate_comparison.png"
-        fig_dist = Path(__file__).resolve().parent / "reports" / "figures" / "pehe_distribution_boxplot.png"
-        if fig_comp.exists() and fig_dist.exists():
-            col_bf1, col_bf2 = st.columns([1, 1], gap="medium")
-            with col_bf1:
-                st.image(str(fig_comp), caption="Figure 1: Benchmark Precision & Accuracy with 95% Confidence Intervals", use_container_width=True)
-            with col_bf2:
-                st.image(str(fig_dist), caption="Figure 2: Distribution of Errors Across 100 Replications (Log Scale)", use_container_width=True)
+        st.markdown("#### How stable is performance across replications?")
+        metric_labels = {"root_pehe": "Root-PEHE", "ate_error": "Absolute ATE error", "policy_risk": "Policy regret"}
+        benchmark_metric = st.selectbox("Benchmark metric", list(metric_labels),
+                                        format_func=metric_labels.get, key="benchmark_metric")
+        valid_bench = df_unified[df_unified["status"] == "SUCCESS"].copy()
+        fig_bench = px.box(valid_bench, x=benchmark_metric, y="model", color="model", points="all",
+                           hover_data=["replication"], labels={benchmark_metric: metric_labels[benchmark_metric] + " ↓", "model": "Estimator"},
+                           template="plotly_white")
+        fig_bench.update_traces(jitter=0.3, marker_size=3)
+        fig_bench.update_layout(height=420, showlegend=False, margin=dict(l=10, r=10, t=10, b=10))
+        st.plotly_chart(fig_bench, use_container_width=True)
+        st.caption("Every point is a successful fit from the committed 100-replication artifacts; hover for its replication. Boxes show quartiles, not confidence intervals. Changing the sidebar replication does not filter this full-run chart.")
+        st.caption("Summary intervals are 95% percentile bootstrap intervals for the explicitly labeled mean or median across simulation replications. They do not quantify individual prediction uncertainty or clinical generalization.")
 
 
     with st.expander("Separate experiment with Causal Forest and CFRNet"):
         extended_dir = results_dir / "extended"
         try:
-            detail_ext, summary_ext = load_benchmark_artifacts(
+            detail_ext, summary_ext = benchmark_artifacts(
                 extended_dir, set(get_default_models()) | set(get_experimental_models())
             )
         except (ValueError, OSError, KeyError, TypeError) as exc:
@@ -1109,7 +1181,7 @@ with tabs[1]:
                 "policy_risk_mean_ci95_low": "Regret CI low", "policy_risk_mean_ci95_high": "Regret CI high",
                 "avg_runtime_sec": "Mean seconds per fit and prediction",
             }
-            st.dataframe(summary_ext[list(columns)].rename(columns=columns), hide_index=True)
+            st.dataframe(summary_ext[list(columns)].rename(columns=columns).style.format(na_rep="N/A"), hide_index=True)
             st.download_button("Download eight-model experiment (CSV)", detail_ext.to_csv(index=False),
                                file_name="ihdp100_extended_results.csv", mime="text/csv")
 
@@ -1117,7 +1189,7 @@ with tabs[1]:
 # TAB 3: Counterfactual Explorer
 # =============================================================================
 with tabs[2]:
-    st.markdown('<div class="section-header">Individual Counterfactual Decision Simulator</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header">Explore Estimated Counterfactual Outcomes</div>', unsafe_allow_html=True)
     st.markdown(
         '<div class="section-description">'
         'Simulate prospective outcomes under both treatment regimes for an individual profile. '
@@ -1153,6 +1225,9 @@ with tabs[2]:
                 )
             st.warning("Hypothetical edits may create unsupported combinations, even within observed marginal ranges. Predictions are illustrative; feature edits are not causal interventions.")
         st.caption("All unedited features retain their observed values, including x14's original encoding.")
+        if not np.isfinite(sample_vec).all():
+            st.warning("Enter finite numeric feature values. Preview uses the unchanged observed profile until inputs are valid.")
+            sample_vec = train_data["X"][int(profile_index)].copy()
         sample_vec_2d = sample_vec.reshape(1, -1)
 
     with col_sim_view:
@@ -1165,12 +1240,12 @@ with tabs[2]:
         st.markdown(f"""
         <div class="metric-grid" style="grid-template-columns: repeat(2, 1fr); margin-bottom: 1rem;">
             <div class="metric-card">
-                <div class="metric-label">Control Potential Outcome Y(0)</div>
+                <div class="metric-label">Estimated Control Outcome E[Y(0)|X]</div>
                 <div class="metric-value">{y0_scalar:.2f}</div>
                 <div class="metric-meta">Expected outcome without intervention</div>
             </div>
             <div class="metric-card">
-                <div class="metric-label">Treated Potential Outcome Y(1)</div>
+                <div class="metric-label">Estimated Treated Outcome E[Y(1)|X]</div>
                 <div class="metric-value">{y1_scalar:.2f}</div>
                 <div class="metric-meta">Expected outcome with intervention</div>
             </div>
@@ -1386,16 +1461,15 @@ with tabs[3]:
     else:
         df_sub = pd.DataFrame(test_data["X"], columns=[f"x{i:02d}" for i in range(1, 26)])
         df_sub["Estimated_CATE"] = ite_test
-        df_sub["Benefit_Tier"] = pd.qcut(
-            df_sub["Estimated_CATE"], q=3, labels=["Low Gain", "Moderate Gain", "High Gain"], duplicates="drop"
-        )
+        df_sub["Benefit_Tier"] = effect_groups(df_sub["Estimated_CATE"])
+        st.caption("Groups describe predicted effects, not clinical benefit. Tied effects stay together; fewer than three groups may be available.")
 
         col_h1, col_h2 = st.columns([1, 1], gap="medium")
 
         with col_h1:
-            st.markdown('<div class="section-card-title">CATE Distribution Across Benefit Tiers</div>', unsafe_allow_html=True)
+            st.markdown('<div class="section-card-title">CATE Distribution Across Predicted-Effect Groups</div>', unsafe_allow_html=True)
             fig_box, ax_box = plt.subplots(figsize=(5.8, 3.8))
-            tier_palette = {"Low Gain": "#CBD5E1", "Moderate Gain": "#94A3B8", "High Gain": "#0D9488"}
+            tier_palette = dict(zip(df_sub["Benefit_Tier"].cat.categories, ["#64748B", "#0D9488", "#0369A1"]))
             sns.boxplot(
                 data=df_sub,
                 x="Benefit_Tier",
@@ -1406,14 +1480,14 @@ with tabs[3]:
                 width=0.45,
                 ax=ax_box,
             )
-            ax_box.set_xlabel("Intervention Benefit Tier")
+            ax_box.set_xlabel("Predicted-effect group")
             ax_box.set_ylabel("Predicted Treatment Effect (CATE)")
             sns.despine(top=True, right=True)
             st.pyplot(fig_box, use_container_width=True)
             plt.close(fig_box)
 
         with col_h2:
-            st.markdown('<div class="section-card-title">Mean Covariate Profile by Benefit Tier</div>', unsafe_allow_html=True)
+            st.markdown('<div class="section-card-title">Mean Covariate Profile by Predicted-Effect Group</div>', unsafe_allow_html=True)
             mean_chars = df_sub.groupby("Benefit_Tier", observed=False)[["x01", "x02", "x04", "x06"]].mean()
             st.dataframe(mean_chars.style.format("{:.2f}").highlight_min(axis=0, color="#FEF3C7"), use_container_width=True)
 
@@ -1450,6 +1524,10 @@ with tabs[3]:
             key="policy_min_threshold",
             help="Exclude subjects whose predicted treatment benefit is below this threshold.",
         )
+
+    if not np.isfinite(min_thresh):
+        st.warning("Enter a finite eligibility threshold. Policy preview uses 0 until the input is valid.")
+        min_thresh = 0.0
 
     sim_res = simulate_capacity_constrained_policy(
         truth_data["mu0"],
@@ -1494,9 +1572,9 @@ with tabs[3]:
     with col_pk4:
         st.markdown(f"""
         <div class="metric-card">
-            <div class="metric-label">Net Welfare Gain</div>
+            <div class="metric-label">Simulated Outcome Gain</div>
             <div class="metric-value" style="color: #15803D;">{m_strat['gain_vs_treat_none']:+.2f}</div>
-            <div class="metric-meta">Improvement over Status Quo</div>
+            <div class="metric-meta">Difference versus treating none</div>
         </div>
         """, unsafe_allow_html=True)
 
@@ -1590,7 +1668,7 @@ with tabs[4]:
                 res_p = st.session_state.refutation_results[placebo_key]
 
             badge_cls = "badge-pass" if res_p["passed"] else "badge-critical"
-            badge_text = "PASSED" if res_p["passed"] else "FAILED"
+            badge_text = "HEURISTIC SATISFIED" if res_p["passed"] else "REVIEW DIAGNOSTIC"
 
             st.markdown(f"""
             <div style="margin: 0.75rem 0;">
@@ -1621,7 +1699,7 @@ with tabs[4]:
         st.markdown('<div class="section-card-title">Irrelevant Covariate Noise Injection</div>', unsafe_allow_html=True)
         st.caption(
             "Appends an independent Gaussian noise feature Z ~ N(0, 1) to X across 10 trials. "
-            "A well-regularized causal model should maintain effect stability within 15%."
+            "The 15% stability threshold is a heuristic, not a causal-validity test."
         )
 
         noise_key = f"noise_{rep_idx}_{selected_model_id}"
@@ -1638,7 +1716,7 @@ with tabs[4]:
                 res_n = st.session_state.refutation_results[noise_key]
 
             badge_n_cls = "badge-pass" if res_n["passed"] else "badge-warning"
-            badge_n_text = "PASSED" if res_n["passed"] else "WARNING"
+            badge_n_text = "HEURISTIC SATISFIED" if res_n["passed"] else "REVIEW DIAGNOSTIC"
 
             st.markdown(f"""
             <div style="margin: 0.75rem 0;">
@@ -1647,11 +1725,11 @@ with tabs[4]:
             </div>
             """, unsafe_allow_html=True)
 
-            orig_ate = float(res_n.get("original_ate", 0.0))
-            pert_ate = float(res_n.get("perturbed_ate_mean", res_n.get("augmented_ate_mean", 0.0)))
+            orig_ate = float(res_n.get("original_ate", np.nan))
+            pert_ate = float(res_n.get("perturbed_ate_mean", res_n.get("augmented_ate_mean", np.nan)))
             abs_shift = float(abs(pert_ate - orig_ate))
-            pct_shift = float(res_n.get("percent_shift", (abs_shift / max(0.1, abs(orig_ate))) * 100.0))
-            n_sims = int(res_n.get("n_simulations", 10))
+            pct_shift = res_n.get("percent_shift")
+            n_sims = res_n.get("n_simulations")
 
             diag_n_df = pd.DataFrame({
                 "Metric": [
@@ -1662,11 +1740,11 @@ with tabs[4]:
                     "Simulations",
                 ],
                 "Value": [
-                    f"{orig_ate:.4f}",
-                    f"{pert_ate:.4f}",
-                    f"{abs_shift:.4f}",
-                    f"{pct_shift:.2f}%",
-                    f"{n_sims}",
+                    format_metric(orig_ate, 4),
+                    format_metric(pert_ate, 4),
+                    format_metric(abs_shift, 4),
+                    format_metric(pct_shift, 2, "%"),
+                    format_metric(n_sims, 0),
                 ],
             })
             st.dataframe(diag_n_df, use_container_width=True, hide_index=True)
@@ -1731,139 +1809,106 @@ with tabs[5]:
     disagreement = compute_estimator_disagreement(canonical_models, test_data["X"])
     ipw_est = trained_models["ipw"]
     ipw_diagnostics = getattr(ipw_est, "overlap_diagnostics_", {}) or {}
-    sens_result = sensitivity_unobserved_confounding(train_data["X"], train_data["T"], train_data["Y"])
+    try:
+        sens_result = sensitivity_unobserved_confounding(train_data["X"], train_data["T"], train_data["Y"])
+    except ValueError:
+        sens_result = {}
+        st.warning("OLS sensitivity is unavailable for this specification. Its coefficient or uncertainty may be unidentified; diagnostics below show N/A.")
 
     col_p1, col_p2 = st.columns(2, gap="medium")
-
     with col_p1:
-        # Panel 1: Positivity & Overlap
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
-        st.markdown('<div class="section-card-title">1. Empirical Overlap & Positivity Audit</div>', unsafe_allow_html=True)
-        f_clip = ipw_diagnostics.get("fraction_clipped", 0.0)
-        ess_val = ipw_diagnostics.get("effective_sample_size", 0.0)
-        supp_win = ipw_diagnostics.get("common_support_range", (0.0, 1.0))
-
-        badge_ov = "badge-pass" if f_clip < 0.05 else "badge-warning"
-        status_ov = "LOW CLIPPING FRACTION" if f_clip < 0.05 else "MARGINAL BOUNDARY RISK"
-
-        st.markdown(f'<span class="status-badge {badge_ov}">{status_ov}</span>', unsafe_allow_html=True)
-        st.markdown(f"""
-        - **Common Support Range**: `[{supp_win[0]:.3f}, {supp_win[1]:.3f}]`
-        - **Kish Effective Sample Size (ESS)**: `{ess_val:.1f}` / `{n_train}` units
-        - **Propensity Clipping Fraction**: `{f_clip*100.0:.1f}%` of samples clipped to `[0.01, 0.99]`
-        """, unsafe_allow_html=True)
-        st.caption("Finite-sample propensity diagnostics cannot establish population positivity or joint covariate overlap.")
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        # Panel 2: Architectural Consensus
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
-        st.markdown('<div class="section-card-title">2. Cross-Architecture Estimator Consensus</div>', unsafe_allow_html=True)
-        ate_spread = disagreement.get("ate_spread", 0.0)
-        ite_divergence = disagreement.get("mean_ite_disagreement", 0.0)
-
-        badge_ac = "badge-pass" if ate_spread < 1.0 else "badge-warning"
-        status_ac = "HIGH ARCHITECTURAL CONSENSUS" if ate_spread < 1.0 else "MODERATE DISAGREEMENT"
-
-        st.markdown(f'<span class="status-badge {badge_ac}">{status_ac}</span>', unsafe_allow_html=True)
-        st.markdown(f"""
-        - **Population ATE Spread**: `{ate_spread:.3f}` units across all models
-        - **Pairwise CATE Mean Divergence**: `{ite_divergence:.3f}` units
-        - **Active Architectures**: S-Learner, T-Learner, X-Learner, IPW, AIPW
-        """, unsafe_allow_html=True)
-        st.caption("These estimators share identification assumptions. Agreement does not establish those assumptions or causal validity.")
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    with col_p2:
-        # Panel 3: Cinelli-Hazlett Sensitivity
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
-        st.markdown('<div class="section-card-title">3. Formal Omitted Variable Sensitivity (Cinelli & Hazlett, 2020)</div>', unsafe_allow_html=True)
-        rv_q1 = sens_result.get("robustness_value_point_estimate_percent", 0.0)
-        rv_alpha = sens_result.get("robustness_value_significance_percent", 0.0)
-        pr2 = sens_result.get("partial_r2_treatment", 0.0)
-        t_stat = sens_result.get("t_statistic", 0.0)
-        df_deg = sens_result.get("degrees_of_freedom", 0)
-
-        st.markdown('<span class="status-badge badge-pass">OLS SENSITIVITY DIAGNOSTIC</span>', unsafe_allow_html=True)
-        st.markdown(f"""
-        - **OLS Baseline Specification**: `Y ~ T + X` (t = `{t_stat:.2f}`, df = `{df_deg}`)
-        - **Partial R^2 (Y ~ T | X)**: `{pr2:.4f}`
-        - **Robustness Value RV(q=1)**: `{rv_q1:.2f}%` (attenuates effect to zero)
-        - **Robustness Value RV(alpha=0.05)**: `{rv_alpha:.2f}%` (renders effect non-significant)
-        """, unsafe_allow_html=True)
-        st.caption(
-            f"Equal-strength residual association benchmark: RV(q=1) = {rv_q1:.2f}%. "
-            "This OLS sensitivity calculation does not establish absence of unmeasured confounding."
+        st.markdown("#### 1 · Empirical overlap")
+        support = ipw_diagnostics.get("common_support_range")
+        support_text = "N/A" if support is None else "[" + ", ".join(format_metric(v) for v in support) + "]"
+        clipping = ipw_diagnostics.get("fraction_clipped")
+        st.markdown(
+            f"- **Common support range**: {support_text}\n"
+            f"- **Effective sample size**: {format_metric(ipw_diagnostics.get('effective_sample_size'), 1)} / {n_train}\n"
+            f"- **Propensity clipping fraction**: {format_metric(None if clipping is None else clipping * 100, 1, '%')}"
         )
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        # Panel 4: Decision Boundaries
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
-        st.markdown('<div class="section-card-title">4. Scientific Decision-Readiness Verdict</div>', unsafe_allow_html=True)
-        st.markdown('<span class="status-badge badge-pass">RESEARCH BENCHMARK — QA PENDING</span>', unsafe_allow_html=True)
-        st.markdown("""
-        - **Internal Validity**: Not established by diagnostic plots or cross-fitting alone.
-        - **Identification Bounds**: Valid under conditional ignorability; untestable in pure observational environments.
-        - **Inference Conditions**: AIPW inference requires identification, nuisance-rate and regularity conditions. Cross-fitting alone does not guarantee them.
-        """, unsafe_allow_html=True)
-        st.caption("Transparent reporting of methodological boundaries and operational constraints.")
-        st.markdown('</div>', unsafe_allow_html=True)
+        st.caption("Finite-sample propensity diagnostics cannot establish population positivity or joint covariate overlap.")
+        st.markdown("#### 2 · Estimator disagreement")
+        st.markdown(
+            f"- **Test mean effect spread**: {format_metric(disagreement.get('ate_spread'))}\n"
+            f"- **Mean effect disagreement**: {format_metric(disagreement.get('mean_ite_disagreement'))}"
+        )
+        st.caption("All six estimators, including the naive baseline. Shared assumptions can produce shared errors; agreement does not establish causal validity.")
+    with col_p2:
+        st.markdown("#### 3 · OLS sensitivity to omitted variables")
+        st.markdown(
+            f"- **OLS t statistic / residual df**: {format_metric(sens_result.get('t_statistic'), 2)} / {format_metric(sens_result.get('degrees_of_freedom'), 0)}\n"
+            f"- **Partial R² (Y ~ T | X)**: {format_metric(sens_result.get('partial_r2_treatment'), 4)}\n"
+            f"- **RV to attenuate point estimate to zero**: {format_metric(sens_result.get('robustness_value_point_estimate_percent'), 2, '%')}\n"
+            f"- **RV for non-significance at α=0.05**: {format_metric(sens_result.get('robustness_value_significance_percent'), 2, '%')}"
+        )
+        st.caption("Cinelli–Hazlett sensitivity applies to the OLS specification Y ~ T + X, not directly to every selected estimator. It does not establish absence of unmeasured confounding.")
+        st.markdown("#### 4 · What remains unknown")
+        st.markdown(
+            "**Research benchmark — final approval pending.** Diagnostic success does not establish internal or external validity. "
+            "Unmeasured confounding, overlap and consistency remain identification assumptions. "
+            "No individual prediction interval is shown. Simulation performance does not establish clinical effectiveness."
+        )
 
     # -------------------------------------------------------------------------
     # Paired Benchmark Significance Testing (100 Replications)
     # -------------------------------------------------------------------------
     st.markdown('<hr style="border-color: #E2E8F0; margin: 1.5rem 0 1rem 0;">', unsafe_allow_html=True)
-    st.markdown('<div class="section-card-title">Rigorous Paired Benchmark Significance Testing (All 100 Replications)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-card-title">Paired Benchmark Comparisons Across Simulation Replications</div>', unsafe_allow_html=True)
     st.caption(
-        "Head-to-head paired differences against benchmark leader T-Learner across all 100 IHDP replications. "
+        "Head-to-head paired differences against the T-Learner reference across all 100 IHDP replications. "
         "Delta = Metric(Competitor) - Metric(T-Learner). Positive delta indicates higher error than T-Learner. "
         "Includes Wilcoxon signed-rank and paired t-test p-values alongside 95% bootstrap confidence intervals."
     )
 
     paired_df = pd.DataFrame()
     if df_unified is not None:
-        paired_df = compute_paired_benchmark_differences(df_unified)
+        paired_df = paired_comparisons(df_unified)
     if not paired_df.empty:
         disp_paired = pd.DataFrame({
             "Competitor Architecture": paired_df["competitor"],
-            "Mean Delta (Root-PEHE)": paired_df["mean_difference"].apply(lambda v: f"{v:+.4f}"),
-            "95% Bootstrap CI": paired_df.apply(lambda r: f"[{r['ci_95_low']:+.3f}, {r['ci_95_high']:+.3f}]", axis=1),
-            "T-Learner Win Rate": paired_df["baseline_win_rate_pct"].apply(lambda v: f"{v:.1f}%"),
-            "Wilcoxon p-val": paired_df["wilcoxon_pval"].apply(lambda p: f"{p:.2e}"),
-            "Paired t p-val": paired_df["paired_t_pval"].apply(lambda p: f"{p:.2e}"),
+            "Mean Delta (Root-PEHE)": paired_df["mean_difference"].apply(lambda v: format_metric(v, 4)),
+            "95% CI for mean paired difference": paired_df.apply(lambda r: f"[{format_metric(r['ci_95_low'])}, {format_metric(r['ci_95_high'])}]", axis=1),
+            "T-Learner Win Rate": paired_df["baseline_win_rate_pct"].apply(lambda v: format_metric(v, 1, "%")),
+            "Wilcoxon p-val": paired_df["wilcoxon_pval"].apply(lambda p: f"{p:.2e}" if np.isfinite(p) else "N/A"),
+            "Paired t p-val": paired_df["paired_t_pval"].apply(lambda p: f"{p:.2e}" if np.isfinite(p) else "N/A"),
             "Matched fits": paired_df["n_replications"],
             "Holm p (Wilcoxon)": paired_df["wilcoxon_holm"],
             "Holm p (paired t)": paired_df["paired_t_holm"],
         })
-        st.dataframe(disp_paired, use_container_width=True, hide_index=True)
+        st.dataframe(disp_paired.style.format(na_rep="N/A"), use_container_width=True, hide_index=True)
         st.caption("Five comparisons per test family. Intervals resample matched simulation replications. Shared cohort and selection of the baseline limit population inference.")
 
     # Export Reliability Dossier
     dossier_payload = {
         "benchmark": "CFRNet IHDP-100",
+        "result_status": "provisional_pending_modeling_owner_approval",
+        "outcome_type": "semi-synthetic; not clinical treatment effects",
+        "configuration": "original archived scale; no additional standardization; fixed estimator defaults",
+        "uncertainty": "No individual prediction intervals; diagnostics do not establish causal identification",
         "replication": int(rep_idx),
         "sample_size": {"train": n_train, "test": n_test},
         "active_estimator": selected_model_display,
         "overlap_audit": {
-            "common_support_range": list(ipw_diagnostics.get("common_support_range", (0.0, 1.0))),
-            "effective_sample_size": float(ipw_diagnostics.get("effective_sample_size", 0.0)),
-            "fraction_clipped": float(ipw_diagnostics.get("fraction_clipped", 0.0)),
+            "common_support_range": ipw_diagnostics.get("common_support_range"),
+            "effective_sample_size": ipw_diagnostics.get("effective_sample_size"),
+            "fraction_clipped": ipw_diagnostics.get("fraction_clipped"),
         },
         "estimator_consensus": {
-            "ate_spread": float(disagreement.get("ate_spread", 0.0)),
-            "mean_ite_divergence": float(disagreement.get("mean_ite_disagreement", 0.0)),
-            "passed": bool(disagreement.get("passed", False)),
+            "ate_spread": disagreement.get("ate_spread"),
+            "mean_ite_divergence": disagreement.get("mean_ite_disagreement"),
+            "passed": disagreement.get("passed"),
         },
         "sensitivity_analysis": {
-            "ols_treatment_effect": float(sens_result.get("ols_treatment_effect", 0.0)),
-            "t_statistic": float(sens_result.get("t_statistic", 0.0)),
-            "degrees_of_freedom": int(sens_result.get("degrees_of_freedom", 0)),
-            "robustness_value_rv_q1_percent": float(sens_result.get("robustness_value_point_estimate_percent", 0.0)),
-            "robustness_value_rv_alpha_percent": float(sens_result.get("robustness_value_significance_percent", 0.0)),
+            "ols_treatment_effect": sens_result.get("ols_treatment_effect"),
+            "t_statistic": sens_result.get("t_statistic"),
+            "degrees_of_freedom": sens_result.get("degrees_of_freedom"),
+            "robustness_value_rv_q1_percent": sens_result.get("robustness_value_point_estimate_percent"),
+            "robustness_value_rv_alpha_percent": sens_result.get("robustness_value_significance_percent"),
         },
     }
     st.download_button(
         label="Export Reliability Dossier (JSON)",
-        data=json.dumps(dossier_payload, indent=2),
+        data=json.dumps(json_safe(dossier_payload), indent=2, allow_nan=False),
         file_name=f"causallens_reliability_dossier_rep{rep_idx:02d}.json",
         mime="application/json",
     )

@@ -191,3 +191,102 @@ def test_corrupt_benchmark_keeps_explorer_available(monkeypatch):
     assert not at.exception
     assert any("Full benchmark artifacts unavailable" in m.value for m in at.warning)
     assert at.selectbox(key="test_unit_selector").value == 0
+
+
+@pytest.mark.parametrize('error', [FileNotFoundError, ValueError])
+def test_missing_or_invalid_archive_has_actionable_empty_state(monkeypatch, error):
+    from causallens.data import loader
+    def unavailable(*args, **kwargs):
+        raise error('private local path must not be exposed')
+    monkeypatch.setattr(loader, 'load_ihdp', unavailable)
+    at = AppTest.from_file(APP_PATH, default_timeout=60).run()
+    assert not at.exception
+    assert any('IHDP data unavailable or invalid' in e.value for e in at.error)
+    assert any('simulated outcomes' in info.value for info in at.info)
+    assert not any('private local path' in e.value for e in at.error)
+
+
+def test_unidentified_sensitivity_does_not_break_evidence_or_exports(monkeypatch):
+    from causallens.evaluation import robustness
+    def unavailable(*args, **kwargs):
+        raise ValueError('unidentified coefficient')
+    monkeypatch.setattr(robustness, 'sensitivity_unobserved_confounding', unavailable)
+    at = AppTest.from_file(APP_PATH, default_timeout=60).run()
+    assert not at.exception
+    assert any('OLS sensitivity is unavailable' in w.value for w in at.warning)
+    assert any('OLS t statistic / residual df**: N/A / N/A' in m.value for m in at.markdown)
+    assert any(b.label == 'Export Reliability Dossier (JSON)' for b in at.get('download_button'))
+
+
+def test_cached_fits_and_evaluation_survive_profile_and_metric_changes(monkeypatch):
+    import causallens.evaluation.benchmarks as benchmarks
+    original = benchmarks.evaluate_replication
+    calls = []
+    def tracked(*args, **kwargs):
+        calls.append(args[0])
+        return original(*args, **kwargs)
+    monkeypatch.setattr(benchmarks, 'evaluate_replication', tracked)
+    at = AppTest.from_file(APP_PATH, default_timeout=60).run()
+    at.number_input(key='profile_index').set_value(2).run()
+    at.selectbox(key='benchmark_metric').select('policy_risk').run()
+    assert not at.exception
+    assert calls == [0]
+    at.sidebar.slider[0].set_value(1).run()
+    assert not at.exception
+    assert calls == [0, 1]
+
+
+def test_tied_heterogeneous_predictions_render(monkeypatch):
+    import numpy as np
+    from causallens.models import TLearner
+    def tied(self, X):
+        return np.r_[np.zeros(int(len(X)*.7)), np.ones(len(X)-int(len(X)*.7))]
+    monkeypatch.setattr(TLearner, 'estimate_ite', tied)
+    at = AppTest.from_file(APP_PATH, default_timeout=60).run()
+    at.sidebar.selectbox[0].select('t_learner').run()
+    assert not at.exception
+    assert any('Tied effects stay together' in c.value for c in at.caption)
+
+
+def test_nonfinite_hypothetical_profile_and_threshold_have_explicit_fallback(monkeypatch):
+    # Streamlit normalizes inf in widget transport; inject at its return boundary
+    # to exercise our defense if an invalid value reaches the application.
+    import streamlit as st
+    original = st.number_input
+    def invalid(*args, **kwargs):
+        value = original(*args, **kwargs)
+        if kwargs.get('key') in {'profile_0_0_0', 'policy_min_threshold'}:
+            return float('inf')
+        return value
+    monkeypatch.setattr(st, 'number_input', invalid)
+    at = AppTest.from_file(APP_PATH, default_timeout=60).run()
+    at.checkbox(key='modify_profile').check().run()
+    assert not at.exception
+    assert any('finite numeric feature values' in w.value for w in at.warning)
+    assert any('finite eligibility threshold' in w.value for w in at.warning)
+
+
+def test_model_initialization_failure_is_distinct_from_missing_data(monkeypatch):
+    from causallens.models import TLearner
+    def broken(*args, **kwargs):
+        raise RuntimeError('internal model initialization')
+    monkeypatch.setattr(TLearner, 'fit', broken)
+    at = AppTest.from_file(APP_PATH, default_timeout=60).run()
+    assert not at.exception
+    assert any('Model initialization failed' in e.value for e in at.error)
+
+
+def test_absent_overlap_and_consensus_are_na(monkeypatch):
+    from causallens.models import IPWEstimator
+    from causallens.evaluation import robustness
+    original = IPWEstimator.fit
+    def without_diagnostics(self, *args, **kwargs):
+        original(self, *args, **kwargs)
+        self.overlap_diagnostics_ = {}
+        return self
+    monkeypatch.setattr(IPWEstimator, 'fit', without_diagnostics)
+    monkeypatch.setattr(robustness, 'compute_estimator_disagreement', lambda *a, **kw: {})
+    at = AppTest.from_file(APP_PATH, default_timeout=60).run()
+    assert not at.exception
+    assert any('Effective sample size**: N/A' in m.value for m in at.markdown)
+    assert any('Test mean effect spread**: N/A' in m.value for m in at.markdown)
