@@ -52,3 +52,14 @@ parent so this deployment work does not replace upstream contributors' branches.
 Record the actual published SHA, URL and cloud verification in the delivered
 status record; this readiness report alone is not proof of deployment. Phase 8
 and final submission are outside the currently authorized scope.
+
+## Observed cloud runtime
+
+The first deployment successfully started at
+https://causallens-synthetic-demo.streamlit.app/ on Python **3.13.18**.
+Community Cloud selected `deploy/requirements.txt` as intended. Its platform
+installer replaced PyArrow 26.0.1 with **24.0.0**, reporting a known segfault in
+26.0.1. The runtime pin is now explicitly 24.0.0 to match the running host.
+The 168-test local result above used the original local PyArrow 26.0.1; public
+UI validation covers the hosted 24.0.0 runtime. The platform also installs its
+own logging packages and upgrades pip; these are outside the application lock.
