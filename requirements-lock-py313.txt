@@ -1,3 +1,4 @@
+# Historical Linux base/EDA environment. Dashboard and experiments need their respective extras.
 # Reference environment: CPython 3.13.5, Linux x86_64.
 # Install this file, then: python -m pip install -e . --no-deps
 anyio==4.16.0

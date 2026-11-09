@@ -66,7 +66,7 @@ def main():
         sorted_sum["root_pehe_ci95_high"] - sorted_sum["root_pehe_mean"],
     ]
     bars = ax.bar(models, sorted_sum["root_pehe_mean"], yerr=y_err, capsize=4, color=colors, alpha=0.85, edgecolor="#1E293B", linewidth=0.8)
-    ax.set_ylabel(r"Root-PEHE ($\sqrt{\epsilon_{PEHE}}$) — Mean $\pm$ 95% CI")
+    ax.set_ylabel(r"Root-PEHE ($\sqrt{\epsilon_{PEHE}}$) — Mean (95% bootstrap CI)")
     ax.set_title("Heterogeneous Treatment Effect Precision", fontweight="bold")
     ax.set_xticklabels(models, rotation=30, ha="right")
     ax.grid(axis="y", linestyle="--", alpha=0.5)
@@ -82,7 +82,7 @@ def main():
         sorted_sum["ate_error_ci95_high"] - sorted_sum["ate_error_mean"],
     ]
     bars2 = ax.bar(models, sorted_sum["ate_error_mean"], yerr=y_err_ate, capsize=4, color=colors, alpha=0.85, edgecolor="#1E293B", linewidth=0.8)
-    ax.set_ylabel(r"Absolute ATE Error — Mean $\pm$ 95% CI")
+    ax.set_ylabel("Absolute ATE Error — Mean (95% bootstrap CI)")
     ax.set_title("Population Effect Estimation Accuracy", fontweight="bold")
     ax.set_xticklabels(models, rotation=30, ha="right")
     ax.grid(axis="y", linestyle="--", alpha=0.5)
@@ -205,7 +205,7 @@ def main():
         ax.text(bar.get_x() + bar.get_width() / 2, val + 0.03, f"{val:.4f}", ha="center", va="bottom", fontsize=8.5, fontweight="600")
 
     ax = axes[1]
-    sorted_corr = summary_df.sort_values("cate_pearson_r_mean", ascending=False)
+    sorted_corr = summary_df.dropna(subset=["cate_pearson_r_mean"]).sort_values("cate_pearson_r_mean", ascending=False)
     m_corr = sorted_corr["model"].tolist()
     c_corr = [model_colors.get(m, "#475569") for m in m_corr]
     bars_c = ax.bar(m_corr, sorted_corr["cate_pearson_r_mean"], color=c_corr, alpha=0.85, edgecolor="#1E293B", linewidth=0.8)
@@ -221,6 +221,23 @@ def main():
     fig.savefig(fig_dir / "policy_risk_and_correlation.png")
     plt.close()
     print("Saved policy_risk_and_correlation.png")
+
+    extended = results_dir / "extended" / "ihdp100_summary.csv"
+    if extended.exists():
+        comparison = pd.read_csv(extended).sort_values("root_pehe_mean")
+        labels = comparison["model"]
+        fig, axes = plt.subplots(1, 3, figsize=(12, 4.5), sharey=True)
+        for ax, col, label in zip(axes, ("root_pehe", "ate_error", "policy_risk"),
+                                  ("Root-PEHE", "Absolute ATE error", "Policy regret")):
+            mean = comparison[col + "_mean"]
+            bounds = [mean - comparison[col + "_mean_ci95_low"], comparison[col + "_mean_ci95_high"] - mean]
+            ax.errorbar(mean, labels, xerr=bounds, fmt="o", color="#0F766E", capsize=3)
+            ax.set_xlabel(label + " (outcome units)")
+        axes[0].invert_yaxis()
+        fig.suptitle("IHDP-100 extended experiment · replication means and 95% bootstrap intervals")
+        fig.tight_layout()
+        fig.savefig(fig_dir / "extended_ihdp100.png")
+        plt.close(fig)
 
 
 if __name__ == "__main__":

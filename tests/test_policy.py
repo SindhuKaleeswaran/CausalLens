@@ -67,7 +67,10 @@ def test_simulate_capacity_constrained_policy(synthetic_policy_data):
 
     # Regrets must be non-negative
     for s_name, s_data in strats.items():
-        assert s_data["policy_regret"] >= 0.0
+        if s_name == "Treat All":
+            assert s_data["policy_regret"] is None  # infeasible at this budget
+        else:
+            assert s_data["policy_regret"] >= 0.0
 
     # Out of bounds capacity fraction
     with pytest.raises(ValueError):

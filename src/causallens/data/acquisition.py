@@ -48,16 +48,16 @@ def download_ihdp(data_dir="data/raw", expected_hashes=None):
         previous = manifest["files"].get(split, {})
         expected = expected_hashes.get(split) or previous.get("sha256")
         if path.exists():
-            schema = validate_archive(path)
-            if schema["x"]["shape"][0] != SPLIT_SIZES[split]:
-                raise ValueError(f"Unexpected {split} sample count")
             digest = sha256(path)
             if expected and digest != expected:
                 raise ValueError(f"Hash mismatch for existing {path}; refusing replacement")
+            schema = validate_archive(path)
+            if schema["x"]["shape"][0] != SPLIT_SIZES[split]:
+                raise ValueError(f"Unexpected {split} sample count")
             if not previous:
                 manifest["files"][split] = {
                     "url": URLS[split], "filename": path.name, "bytes": path.stat().st_size,
-                    "sha256": digest, "retrieved_at_utc": None,
+                    "sha256": digest, "schema": schema, "retrieved_at_utc": None,
                     "provenance_note": "Existing file adopted; original retrieval time unknown"}
             atomic_json(manifest_path, manifest)
             continue
@@ -80,12 +80,12 @@ def download_ihdp(data_dir="data/raw", expected_hashes=None):
                 length = response.headers.get("Content-Length")
                 if length is not None and size != int(length):
                     raise ValueError("Incomplete download: Content-Length mismatch")
-                schema = validate_archive(temp)
-                if schema["x"]["shape"][0] != SPLIT_SIZES[split]:
-                    raise ValueError(f"Unexpected {split} sample count")
                 digest = sha256(temp)
                 if expected and digest != expected:
                     raise ValueError(f"SHA-256 mismatch for {split}")
+                schema = validate_archive(temp)
+                if schema["x"]["shape"][0] != SPLIT_SIZES[split]:
+                    raise ValueError(f"Unexpected {split} sample count")
                 entry = {"url": URLS[split], "final_url": response.url,
                          "filename": path.name, "bytes": size, "sha256": digest,
                          "retrieved_at_utc": datetime.now(timezone.utc).isoformat(),

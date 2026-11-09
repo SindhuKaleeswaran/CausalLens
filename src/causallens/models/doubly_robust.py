@@ -111,6 +111,9 @@ class DoublyRobustEstimator(BaseCausalEstimator):
         }
 
     def fit(self, X: Any, T: Any, Y: Any) -> "DoublyRobustEstimator":
+        low, high = self.clip_range
+        if not 0 < low < high < 1:
+            raise ValueError("clip_range must satisfy 0 < low < high < 1")
         X_arr, T_arr, Y_arr = self._validate_inputs(X, T, Y)
         assert T_arr is not None and Y_arr is not None
 

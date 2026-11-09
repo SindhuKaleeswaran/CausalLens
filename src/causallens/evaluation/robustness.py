@@ -287,10 +287,10 @@ def sensitivity_unobserved_confounding(
 
     Formulas:
         t = tau_hat_ols / SE(tau_hat_ols)
-        df = n - k - 2 (where k is number of covariates in X)
+        df = n - rank([1, T, X])
         f_q = |t| / sqrt(df)
         RV_{q=1} = 0.5 * ( sqrt(f_q^4 + 4*f_q^2) - f_q^2 )
-        f_alpha = max(0, (|t| - t_crit) / sqrt(df))
+        f_alpha = max(0, |t| / sqrt(df) - t_crit(df-1) / sqrt(df-1))
         RV_{alpha} = 0.5 * ( sqrt(f_alpha^4 + 4*f_alpha^2) - f_alpha^2 )
 
     Interpretation:
@@ -303,34 +303,25 @@ def sensitivity_unobserved_confounding(
     Y_arr = np.asarray(Y, dtype=np.float64).ravel()
 
     n = len(Y_arr)
-    k = X_arr.shape[1]
-    df = n - k - 2
-
-    if df <= 1:
-        raise ValueError(f"Insufficient degrees of freedom (df = {df}) for sensitivity analysis")
-
-    # Fit OLS of Y on [1, T, X]
-    M = np.column_stack([np.ones(n, dtype=np.float64), T_arr, X_arr])
-    # Solve normal equations via QR / least squares for numerical stability
-    beta_ols, residuals, rank, s = np.linalg.lstsq(M, Y_arr, rcond=None)
+    controls = np.column_stack([np.ones(n), X_arr])
+    M = np.column_stack([np.ones(n), T_arr, X_arr])
+    beta_ols, _, rank, _ = np.linalg.lstsq(M, Y_arr, rcond=None)
+    if rank == np.linalg.matrix_rank(controls):
+        raise ValueError("Treatment coefficient is unidentified given the covariates")
+    df = n - rank
+    if df <= 1 or not 0 < alpha < 1:
+        raise ValueError("Sensitivity requires residual df > 1 and 0 < alpha < 1")
 
     y_pred = M @ beta_ols
     res = Y_arr - y_pred
     sigma2 = np.sum(res ** 2) / df
 
-    # Invert (M^T M) with rank safety (F12)
-    if rank < M.shape[1]:
-        inv_mtm = np.linalg.pinv(M.T @ M)
-    else:
-        try:
-            inv_mtm = np.linalg.inv(M.T @ M)
-        except np.linalg.LinAlgError:
-            inv_mtm = np.linalg.pinv(M.T @ M)
-
-    se_ols = float(np.sqrt(sigma2 * max(0.0, inv_mtm[1, 1])))
+    se_ols = np.sqrt(sigma2) * np.linalg.norm(np.linalg.pinv(M)[1])
     tau_ols = float(beta_ols[1])
 
-    t_stat = tau_ols / se_ols if se_ols > 1e-12 else 0.0
+    if np.linalg.norm(res) <= np.finfo(float).eps * max(M.shape) * np.linalg.norm(Y_arr):
+        raise ValueError("Sensitivity is undefined for a perfect outcome fit")
+    t_stat = tau_ols / se_ols
     abs_t = abs(t_stat)
 
     # Partial R^2 of treatment with outcome given X
@@ -338,15 +329,12 @@ def sensitivity_unobserved_confounding(
 
     # 1. Robustness Value to bring point estimate to zero (q = 1)
     f_q = abs_t / np.sqrt(df)
-    rv_q1 = float(0.5 * (np.sqrt(f_q ** 4 + 4.0 * f_q ** 2) - f_q ** 2))
-
-    # 2. Robustness Value to bring 95% confidence interval to include zero
-    t_crit = float(stats.t.ppf(1.0 - alpha / 2.0, df=df))
-    if abs_t > t_crit:
-        f_alpha = (abs_t - t_crit) / np.sqrt(df)
-        rv_alpha = float(0.5 * (np.sqrt(f_alpha ** 4 + 4.0 * f_alpha ** 2) - f_alpha ** 2))
-    else:
-        rv_alpha = 0.0
+    rv_q1 = 2 / (1 + np.hypot(1, 2 / f_q)) if f_q else 0.0
+    f_crit = stats.t.isf(alpha / 2, df - 1) / np.sqrt(df - 1)
+    gap = f_q - f_crit
+    rv_alpha = 2 / (1 + np.hypot(1, 2 / gap)) if gap > 0 else 0.0
+    if gap > 0 and f_q * f_crit > 1:
+        rv_alpha = (f_q**2 - f_crit**2) / (1 + f_q**2)
 
     rv_q1_pct = round(rv_q1 * 100.0, 2)
     rv_alpha_pct = round(rv_alpha * 100.0, 2)

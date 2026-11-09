@@ -241,6 +241,7 @@ secrets.*
 *.parquet
 *.csv
 !/results/*.csv
+!/results/extended/*.csv
 *.pkl
 *.pickle
 *.joblib
@@ -257,3 +258,6 @@ secrets.*
 *.part
 *.tmp
 notebooks/*.executed.ipynb
+
+# Local audit environments, execution logs and transient verification copies
+/.audit/
