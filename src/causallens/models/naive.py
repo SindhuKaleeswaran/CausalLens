@@ -70,6 +70,8 @@ class NaiveEstimator(BaseCausalEstimator):
     def estimate_ate(self, X: Optional[Any] = None) -> float:
         """Return raw difference in means."""
         self._check_is_fitted()
+        if X is not None:
+            self._validate_inputs(X)
         return self.diff_in_means_
 
     def predict_potential_outcomes(self, X: Any) -> Tuple[np.ndarray, np.ndarray]:

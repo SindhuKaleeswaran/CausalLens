@@ -167,9 +167,17 @@ def test_bootstrap_ate_confidence_interval():
     T = rng.binomial(1, 0.5, size=n).astype(float)
     Y = 1.0 + 3.0 * T + rng.normal(scale=0.1, size=n)
 
+    # Test default sample_mean_cate
     low, high, ates = bootstrap_ate_confidence_interval(SLearner(), X, T, Y, n_bootstraps=15)
     assert low <= 3.0 <= high
     assert len(ates) == 15
+
+    # Test training_ate statistic (F9)
+    low_tr, high_tr, ates_tr = bootstrap_ate_confidence_interval(
+        SLearner(), X, T, Y, n_bootstraps=15, statistic="training_ate"
+    )
+    assert low_tr <= 3.0 <= high_tr
+    assert len(ates_tr) == 15
 
 
 def test_evaluate_replication_with_ihdp():
@@ -257,3 +265,71 @@ def test_trained_models_key_registry_and_aliases():
     # Verify explicit error handling on unknown keys (zero silent substitution)
     with pytest.raises(KeyError):
         _ = unified_dict["nonexistent_model_estimator"]
+
+
+def test_confidence_interval_mean_vs_median_distinction():
+    """Regression test specifically detecting mean-versus-median confidence interval mislabeling.
+
+    Ensures:
+    1. 95% CI for the mean targets the sample mean and not the sample median.
+    2. 95% CI for the median targets the sample median and not the sample mean.
+    3. On right-skewed metric distributions (like IHDP Root-PEHE), the median is outside
+       the mean CI, catching any accidental mislabeling of mean CIs as median CIs.
+    4. aggregate_benchmark_results exports explicit columns for both mean and median CIs.
+    """
+    import pandas as pd
+    from causallens.evaluation.benchmarks import (
+        aggregate_benchmark_results,
+        compute_bootstrap_ci,
+    )
+
+    # Synthetic right-skewed metric distribution (log-normal: mean ~ 2.3, median ~ 1.0)
+    rng = np.random.RandomState(42)
+    skewed_vals = rng.lognormal(mean=0.0, sigma=1.3, size=100)
+    sample_mean = float(np.mean(skewed_vals))
+    sample_median = float(np.median(skewed_vals))
+
+    assert sample_mean > sample_median + 0.4, "Distribution must be significantly right-skewed"
+
+    # Compute bootstrap intervals
+    mean_ci_lo, mean_ci_hi = compute_bootstrap_ci(skewed_vals, np.mean, n_bootstrap=1000, random_state=42)
+    med_ci_lo, med_ci_hi = compute_bootstrap_ci(skewed_vals, np.median, n_bootstrap=1000, random_state=42)
+
+    # 1. CI for mean brackets sample mean
+    assert mean_ci_lo <= sample_mean <= mean_ci_hi
+    # 2. CI for median brackets sample median
+    assert med_ci_lo <= sample_median <= med_ci_hi
+    # 3. Median is strictly BELOW the mean CI lower bound in this right-skewed setting
+    assert sample_median < mean_ci_lo, (
+        f"Mislabeled interval detected: sample median ({sample_median:.3f}) should not fall within "
+        f"the mean CI [{mean_ci_lo:.3f}, {mean_ci_hi:.3f}] under severe skewness"
+    )
+
+    # 4. Verify aggregate_benchmark_results preserves distinct column names
+    mock_detailed = pd.DataFrame({
+        "replication": list(range(100)),
+        "model": ["TestModel"] * 100,
+        "status": ["SUCCESS"] * 100,
+        "seed": list(range(100)),
+        "root_pehe": skewed_vals,
+        "pehe": skewed_vals,
+        "pehe_sq": skewed_vals ** 2,
+        "ate_error": skewed_vals * 0.1,
+        "policy_risk": skewed_vals * 0.05,
+        "policy_value": [1.0] * 100,
+        "cate_pearson_r": [0.8] * 100,
+        "total_time_sec": [0.01] * 100,
+    })
+
+    summary_df = aggregate_benchmark_results(mock_detailed)
+    row = summary_df.iloc[0]
+
+    # Explicit column existence
+    assert "root_pehe_mean_ci95_low" in summary_df.columns
+    assert "root_pehe_mean_ci95_high" in summary_df.columns
+    assert "root_pehe_median_ci95_low" in summary_df.columns
+    assert "root_pehe_median_ci95_high" in summary_df.columns
+
+    # Check that median summary contains median CI, not mean CI
+    assert f"{row['root_pehe_median_ci95_low']:.3f}" in row["pehe_median_ci_summary"]
+    assert f"{row['root_pehe_mean_ci95_low']:.3f}" not in row["pehe_median_ci_summary"]

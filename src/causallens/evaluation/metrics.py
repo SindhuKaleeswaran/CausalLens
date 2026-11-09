@@ -10,6 +10,17 @@ from typing import Any, Dict, Optional, Union
 import numpy as np
 
 
+def _aligned_vectors(*values):
+    arrays = tuple(np.asarray(value, dtype=np.float64) for value in values)
+    if any(a.ndim != 1 or not a.size for a in arrays):
+        raise ValueError("Expected nonempty one-dimensional vectors")
+    if any(a.shape != arrays[0].shape for a in arrays):
+        raise ValueError("Shape mismatch between vectors")
+    if any(not np.isfinite(a).all() for a in arrays):
+        raise ValueError("Expected finite vector values")
+    return arrays
+
+
 def pehe_score(
     tau_true: Union[np.ndarray, list],
     tau_pred: Union[np.ndarray, list],
@@ -30,15 +41,7 @@ def pehe_score(
     pehe : float
         Root mean squared error between predicted and true treatment effects.
     """
-    t_true = np.asarray(tau_true, dtype=np.float64)
-    t_pred = np.asarray(tau_pred, dtype=np.float64)
-
-    if t_true.shape != t_pred.shape:
-        raise ValueError(f"Shape mismatch: tau_true shape {t_true.shape} != tau_pred shape {t_pred.shape}")
-    if len(t_true) == 0:
-        raise ValueError("Cannot compute PEHE on empty arrays")
-    if not (np.all(np.isfinite(t_true)) and np.all(np.isfinite(t_pred))):
-        raise ValueError("tau arrays must contain finite numeric values")
+    t_true, t_pred = _aligned_vectors(tau_true, tau_pred)
 
     return float(np.sqrt(np.mean((t_pred - t_true) ** 2)))
 
@@ -95,14 +98,9 @@ def policy_value(
     val : float
         Expected outcome under policy assignment.
     """
-    y0 = np.asarray(y0_true, dtype=np.float64)
-    y1 = np.asarray(y1_true, dtype=np.float64)
-    pred = np.asarray(tau_pred, dtype=np.float64)
-
-    if not (y0.shape == y1.shape == pred.shape):
-        raise ValueError("y0_true, y1_true, and tau_pred must all have identical shapes")
-    if len(y0) == 0:
-        raise ValueError("Arrays cannot be empty")
+    y0, y1, pred = _aligned_vectors(y0_true, y1_true, tau_pred)
+    if not np.isfinite(threshold):
+        raise ValueError("threshold must be finite")
 
     pi = (pred > threshold).astype(float)
     outcomes = pi * y1 + (1.0 - pi) * y0
@@ -118,7 +116,7 @@ def policy_risk(
     """Calculate policy regret relative to the optimal oracle policy.
 
     Risk = V(pi*) - V(pi_hat)
-    where pi* = I(Y1 - Y0 > threshold).
+    where pi* = I(Y1 > Y0). The threshold applies to the model rule.
 
     Parameters
     ----------
@@ -136,7 +134,7 @@ def policy_risk(
     y1 = np.asarray(y1_true, dtype=np.float64)
     tau_star = y1 - y0
 
-    v_oracle = policy_value(y0, y1, tau_star, threshold=threshold)
+    v_oracle = policy_value(y0, y1, tau_star)
     v_estimated = policy_value(y0, y1, tau_pred, threshold=threshold)
     return float(max(0.0, v_oracle - v_estimated))
 

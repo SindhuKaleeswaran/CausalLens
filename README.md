@@ -1,91 +1,158 @@
-# CausalLens
+# CausalLens: Professional Causal Investigation & Decision Intelligence Platform
 
-AI-powered causal investigation and decision intelligence system for identifying misleading correlations and evaluating treatment effects. A collaborative research and engineering project for DataNova 2026.
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue.svg)](https://www.python.org/)
+[![Benchmark](https://img.shields.io/badge/IHDP--100-600%2F600%20fits%20converged-teal.svg)](results/)
+[![License: Proprietary](https://img.shields.io/badge/license-DataNova%202026-indigo.svg)](LICENSE)
 
-## Problem and objectives
+**CausalLens** is a scientific causal investigation and decision-support platform designed for the **DataNova Global Data-thon 2026 (Track DN-OP-01: Open Innovation Challenge)**.
 
-Observed associations can mislead decisions when treatment assignment and outcomes share common causes. CausalLens aims to investigate those associations, estimate treatment effects under explicit assumptions, and communicate uncertainty and limitations through a reproducible interactive demo.
+Moving beyond ordinary predictive machine learning, CausalLens leverages the **Neyman-Rubin potential outcomes framework** to uncover hidden observational confounding, estimate heterogeneous treatment effects (CATE / ITE), simulate counterfactual outcomes, and optimize operational resource allocation under capacity constraints.
 
-## Planned methodology
+---
 
-1. Research IHDP benchmark variants, provenance, access terms, and available ground truth.
-2. Acquire an approved version locally; inspect schemas, missingness, treatment balance, and outcome definitions.
-3. Build reproducible preprocessing with train-only fitting and explicit leakage checks.
-4. Develop causal baselines and estimators; evaluate treatment-effect estimates against documented benchmark targets where available.
-5. Run robustness experiments and integrate a Phase 1 demo.
+## 🌟 Key Platform Capabilities
 
-Phases 1–2 are implemented: source research, local acquisition, structural inspection, and a value-preserving loader. Training-only EDA (Phase 3) is complete; minimal optional preprocessing (Phase 4) is implemented; Phase 5 data QA is complete locally. Six causal estimators, evaluation and robustness modules, and a Streamlit dashboard are implemented. See [pre-Phase-5 audit](docs/pre_phase5_audit.md) for current verification and limitations.
+The platform delivers three core capabilities:
 
-## Development setup
+1. **What happened? (Observational Diagnosis)**: Detect systematic baseline covariate imbalances and evaluate propensity score common support overlap.
+2. **What might happen under intervention? (Counterfactual Decision Studio)**: Predict potential outcomes $Y(0)$ and $Y(1)$ for individual profiles, contrast model predictions against oracle ground truth, and simulate real-world budget-constrained treatment allocations.
+3. **How reliable are these estimates? (Scientific Evidence & Falsification)**: Stress-test claims with Davison-Hinkley Monte Carlo placebo permutations, noise injection, pairwise estimator disagreement matrices, and formal Cinelli-Hazlett (2020) omitted variable sensitivity analysis.
 
-Requires Python 3.11 or newer. The prepared CI template targets Python 3.11 and 3.13; activation is pending workflow authorization (see [CI setup](docs/ci/README.md)).
+---
+
+## 🔬 Implemented Causal Estimator Suite
+
+CausalLens implements 6 canonical causal estimators under a unified scikit-learn compatible API (`fit`, `estimate_ate`, `estimate_ite`, `predict_potential_outcomes`):
+
+| Estimator Key | Display Name | Paradigm | Mathematical Mechanics |
+|---|---|---|---|
+| `doubly_robust` | **Doubly Robust (AIPW)** | Semiparametric Cross-Fitting | 5-fold cross-fitted augmented IPW combining propensity and outcome regressions. Consistent if *either* model is correct. |
+| `x_learner` | **X-Learner** | Crossover Meta-Learner | Two-stage meta-learner (Künzel et al. 2019) imputing counterfactual residuals and combining arm-specific effects via propensity weights. |
+| `t_learner` | **T-Learner** | Two-Model Meta-Learner | Separate unconstrained outcome regressions for treated and control arms, preventing cross-arm regularization bias. |
+| `ipw` | **IPW + Weighted Reg** | Propensity Re-weighting | Normalized Hajek inverse propensity weighting coupled with weighted outcome regression. |
+| `s_learner` | **S-Learner** | Single-Model Meta-Learner | Single regression model with treatment indicator feature $T$. Suffers from severe regularization shrinkage in high dimensions. |
+| `naive` | **Naive (Unadjusted)** | Observational Baseline | Unadjusted difference in sample means $\bar{Y}_1 - \bar{Y}_0$ (heavily biased under confounding). |
+
+---
+
+## 📊 Unified IHDP-100 Benchmark Results
+
+Evaluated across all 100 Infant Health and Development Program (IHDP) replications under strict train/test split isolation (Train $N=672$, Held-Out Test $N=75$):
+
+The original six-model run completed 600/600 fits. T-Learner mean Root-PEHE was 2.265 (95% bootstrap interval 1.568–3.183), median 0.915 (0.748–1.053). The separate optional eight-model experiment completed 800/800 fits. CFRNet-MMD averaged 1.472 and the honest causal forest averaged 3.849. See the [complete comparison and statistical verification](reports/scientific_verification.md).
+
+To reproduce the extended experiment, install CPU PyTorch 2.15.0 and the experiments extra, then run:
 
 ```bash
-python3 -m venv .venv
+python -m pip install torch==2.15.0 --index-url https://download.pytorch.org/whl/cpu
+python -m pip install -e ".[experiments]"
+python scripts/evaluate_extended.py
+python scripts/verify_ihdp100.py --extended --results-dir results/extended
+```
+
+---
+
+## 🖥️ Streamlit Decision Studio: 6 Interactive Sections
+
+The Streamlit dashboard (`app.py`) provides 6 aligned analytical sections:
+
+1. **Data & Confounding**: Standardized Mean Difference (SMD) bar chart for 25 baseline covariates, propensity overlap density plots, and Kish Effective Sample Size diagnostics.
+2. **Model Evaluation**: Precision (Root-PEHE) vs. Parameter Accuracy (ATE Error) trade-off scatter plots, CATE kernel density comparisons, and unified 100-replication benchmark summaries.
+3. **Counterfactual Explorer (The Aha Moment)**: Real-time individual counterfactual simulation, quick archetype presets (High vs. Median vs. Negative Responder), Plotly Potential Outcomes Pathway Flow waterfall charts, and normalized covariate profile deviation bar charts.
+4. **Treatment Heterogeneity & Policy Simulator**: Operational resource allocation under finite capacity constraints ($0\%$ to $100\%$). Compares Model-Guided allocation against Benchmark Oracle, Random Assignment, Treat All, and Treat None with exact policy value $V(\pi)$ and non-negative regret $V(\pi^*) - V(\pi)$.
+5. **Robustness Analysis**: Davison-Hinkley Monte Carlo placebo permutation test ($B=20$ trials), uninformative noise injection stability test, and an interactive **Pairwise Estimator Disagreement Matrix** heatmap.
+6. **Evidence Assessment**: Causal Reliability Passport evaluating empirical overlap, architectural consensus, Cinelli-Hazlett (2020) omitted variable sensitivity, 100-replication paired significance tables, and one-click JSON export.
+
+---
+
+## 🚀 Quickstart & Installation
+
+### 1. Clone & Environment Setup
+
+```bash
+git clone https://github.com/SindhuKaleeswaran/CausalLens.git
+cd CausalLens
+
+# Create virtual environment
+python -m venv .venv
+
+# On Linux / macOS:
 source .venv/bin/activate
-python -m pip install -r requirements.txt
-python -m pip install -e .
-python -m pytest
-python -c "import causallens; print(causallens.__version__)"
+# On Windows:
+.venv\Scripts\activate
+
+# Install dependencies including dashboard extra
+python -m pip install --upgrade pip
+python -m pip install -e ".[dashboard,dev]"
+python scripts/download_ihdp.py --expected-manifest docs/data_manifest.json
 ```
 
-On Windows activate with `.venv\Scripts\activate`. Open the numbered notebooks with `jupyter lab`. Notebooks 01–03 are executable.
-
-## Repository map
-
-- `data/raw`, `data/processed`: ignored local datasets; only directory markers are tracked.
-- `notebooks`: executable inspection, training-only EDA, and preprocessing validation (01–03).
-- `src/causallens`: data pipeline, six estimators, benchmark metrics, and robustness modules.
-- `scripts`: working acquisition and structural-inspection entry points.
-- `tests`: offline synthetic-fixture acquisition/loader tests plus optional local-benchmark integration checks.
-- `docs`: provenance, methodology, schema, handoff, and reference templates.
-- `reports`: historical EDA and 100-replication benchmark evidence; generated figures are ignored.
-
-## Collaboration
-
-`main` is the stable integration branch. SindhuKaleeswaran owns dataset research, EDA, preprocessing, validation, and the data pipeline on `feat/data-pipeline`. The teammate (`leninathikam`, verified GitHub username; invitation sent) owns causal methods, models, estimation, evaluation, and robustness work on `feat/causal-models`.
-
-Use short descriptive commits and pull requests into `main`. Pull the latest `main` before starting work, keep PRs focused, run tests locally, and request the other developer's review. Branches are prepared; no branch protection is imposed. See GitHub issues for the initial work breakdown.
-
-## Reproducibility and data handling
-
-See [dataset provenance](docs/dataset_research.md), [dataset card](docs/dataset_card.md), [preprocessing plan](docs/preprocessing_methodology.md), and [model handoff](docs/model_handoff.md). Record exact source/version, retrieval date, checksums, environment, seeds, split indices, preprocessing configuration, and commands before reporting experiments. Never commit raw benchmarks, secrets, or third-party content without verified terms.
-
-## License
-
-All rights reserved. No open-source license has been granted. See LICENSE. Dataset and third-party licensing must be reviewed separately.
-
-## Reproduce Phases 1–2
-
-Run from the repository root after installing the package:
+### 2. Launch the Interactive Decision Studio
 
 ```bash
-python scripts/download_ihdp.py --expected-manifest docs/data_manifest.json
-python scripts/inspect_ihdp.py --replication 0
-python -m pytest
+streamlit run app.py
+```
+Open your browser to `http://localhost:8501`.
+
+### 3. Run the Automated Test Suite
+
+```bash
+# Run all unit, integration, and headless interaction tests
+pytest
+```
+See [final QA](reports/QA.md) for executed checks and environment details.
+
+---
+
+## 📁 Repository Structure
+
+```
+CausalLens/
+├── app.py                            # Premium Streamlit Decision Studio (6 sections)
+├── pyproject.toml                    # Modern packaging configuration & dependencies
+├── src/causallens/
+│   ├── data/
+│   │   ├── loader.py                 # Value-preserving IHDP observed and truth loader
+│   │   ├── preprocess.py             # Leak-free training-only feature scaler
+│   │   └── eda.py                    # Covariate balance and standardized mean differences
+│   ├── models/
+│   │   ├── base.py                   # BaseCausalEstimator abstract base class
+│   │   ├── naive.py                  # Unadjusted observational baseline
+│   │   ├── meta_learners.py          # S-Learner, T-Learner, X-Learner
+│   │   ├── propensity.py             # IPW with Hajek stabilization & clipping
+│   │   └── doubly_robust.py          # 5-fold cross-fitted AIPW
+│   └── evaluation/
+│       ├── metrics.py                # Root-PEHE, pehe_sq, ATE error, policy value & risk
+│       ├── policy.py                 # Capacity-constrained policy simulation & paired testing
+│       ├── benchmarks.py             # 100-replication benchmark execution harness
+│       └── robustness.py             # Placebo test, noise injection, Cinelli-Hazlett sensitivity
+├── tests/
+│   ├── test_causal_models.py         # Unit tests for all 6 estimators
+│   ├── test_policy.py                # Unit tests for policy simulator & paired tests
+│   ├── test_dashboard_interactions.py# Headless AppTest interaction tests across all 6 tabs
+│   └── test_ground_truth.py          # Ground-truth isolation and split verification
+├── results/
+│   ├── ihdp100_summary.csv           # Aggregate 100-replication benchmark results
+│   └── ihdp100_unified_results.csv   # Full 600-fit replication-level records
+├── reports/
+│   ├── SCIENTIFIC_VALIDATION_V2.md   # Comprehensive scientific validation dossier
+│   ├── DEMO_SCRIPT.md                # 3-minute hackathon presentation script
+│   └── IHDP100_BENCHMARK_REPORT.md   # Historical benchmark audit report
+└── docs/                             # Data provenance, schemas, and architecture contracts
 ```
 
-The downloader preserves existing raw files and checks ZIP CRC, schema and SHA-256. The checked-in manifest records this retrieval's hashes, not publisher-authenticated hashes. No alternate release is substituted. Raw files, partial downloads and row-level JSON stay ignored. See [Phase 1–2 handoff](docs/phase1_2_handoff.md) for environment, API and remaining limitations. CI activation is still blocked by OAuth workflow scope; a template is supplied under docs/ci.
+---
 
-Run Phase 3 with `python scripts/eda_ihdp.py`; see reports/eda_summary.md. Phase 4 is implemented; see docs/preprocessing_methodology.md.
+## 📜 Key References & Scientific Foundation
 
-Optional preprocessing: `train, test = load_preprocessed_ihdp(0, standardize=False)` from `causallens.data.preprocess`. Change the flag to True to standardize x01–x06 using training-only statistics. Both modes return X/T/Y dictionaries.
+1. **Hill, J. L. (2011)**. Bayesian nonparametric modeling for causal inference. *Journal of Computational and Graphical Statistics*, 20(1), 217-240.
+2. **Künzel, S. R., Sekhon, J. S., Bickel, P. J., & Yu, B. (2019)**. Metalearners for estimating heterogeneous treatment effects using machine learning. *Proceedings of the National Academy of Sciences*, 116(10), 4156-4165.
+3. **Chernozhukov, V., et al. (2018)**. Double/debiased machine learning for treatment and structural parameters. *The Econometrics Journal*, 21(1), C1-C68.
+4. **Cinelli, C., & Hazlett, C. (2020)**. Making sense of sensitivity: Extending omitted variable bias to assess the robustness of causal inferences. *Journal of the Royal Statistical Society: Series B*, 82(1), 39-67.
+5. **Shalit, U., Johansson, F. D., & Sontag, D. (2017)**. Estimating individual treatment effect: generalization bounds and algorithms. *ICML 2017*, 3076-3085.
 
-## Dashboard and benchmark
+---
 
-`python -m pip install -e '.[dashboard]'` installs the dashboard dependencies.
-Run `streamlit run app.py` after placing the original archives in `data/raw`.
-For all development tools and offline tests, install `-r requirements.txt`.
-Dashboard interaction tests use explicitly artificial fixtures and need no archives.
-Real-data checks remain separate: `CAUSALLENS_REAL_DATA_DIR=/path/to/archives python -m pytest tests/test_audit_integration.py`.
+## ⚖️ License & Ethical Boundaries
 
-The dashboard and benchmark use raw loader features by default; optional scaling is not silently enabled.
-Run `python scripts/evaluate_benchmark.py --full --output-dir work/benchmark-new` to preserve historical reports.
-Reported test ATE predictions are means of predicted CATE over test covariates.
-For IPW/AIPW these differ from training Hájek/AIPW estimates returned by `estimate_ate()` without X.
-The AIPW training ATE interval does not cover individual CATE or the test prediction average.
-All outcomes are simulated benchmark quantities; no clinical effectiveness is established.
-
-## Phase 5 data QA
-
-Run `python scripts/validate_ihdp.py` to reproduce all-100-replication checks. See reports/data_quality_report.md for split-specific truth/noise summaries and docs/model_handoff.md for the integration contract. No model or uncertainty validation is implied.
+Built for the **DataNova Global Data-thon 2026**. All benchmark quantities derive from the semi-synthetic IHDP educational intervention dataset. Predictions illustrate algorithmic properties under the Neyman-Rubin potential outcomes framework and do not constitute clinical guidance or real-world medical recommendations.

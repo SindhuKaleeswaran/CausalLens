@@ -54,6 +54,7 @@ def test_dashboard_initial_render():
     at = AppTest.from_file(APP_PATH, default_timeout=35).run()
     assert len(at.exception) == 0, f"Exceptions on startup: {[e.value for e in at.exception]}"
     # Verify app title and header context
+    assert any(w.label == "Download eight-model experiment (CSV)" for w in at.get("download_button"))
     assert len(at.tabs) == 6
     tab_labels = [t.label for t in at.tabs]
     assert tab_labels == [
@@ -91,11 +92,11 @@ def test_dashboard_switch_replications():
     assert len(at.exception) == 0
 
     # Switch to replication 1
-    at.slider[0].set_value(1).run()
+    at.sidebar.slider[0].set_value(1).run()
     assert len(at.exception) == 0
 
     # Switch to replication 3
-    at.slider[0].set_value(3).run()
+    at.sidebar.slider[0].set_value(3).run()
     assert len(at.exception) == 0
 
 
@@ -144,3 +145,49 @@ def test_dashboard_export_controls():
     labels = [btn.label for btn in at.get("download_button")]
     assert "Export Model Evaluation (CSV)" in labels
     assert "Export Reliability Dossier (JSON)" in labels
+
+
+def test_heldout_subject_displays_selected_model_and_replication():
+    from causallens.data.loader import load_ihdp, load_ihdp_truth
+    from causallens.models import NaiveEstimator, TLearner
+
+    at = AppTest.from_file(APP_PATH, default_timeout=60).run()
+    for rep, model_id, factory, unit in [(0, "t_learner", TLearner, 4), (1, "naive", NaiveEstimator, 8)]:
+        at.sidebar.slider[0].set_value(rep)
+        at.sidebar.selectbox[0].select(model_id).run()
+        at.selectbox(key="test_unit_selector").select(unit).run()
+        assert not at.exception
+        train, test = load_ihdp(rep), load_ihdp(rep, "test")
+        truth = load_ihdp_truth(rep)
+        y0, y1 = factory().fit(**train).predict_potential_outcomes(test["X"][unit:unit+1])
+        cards = [m.value for m in at.markdown]
+        expected = [
+            ("Observed Factual", f'{test["Y"][unit]:.2f}'),
+            ("Model unobserved branch", f'{(y0 if test["T"][unit] else y1)[0]:.2f}'),
+            ("Estimated Effect tau(x)", f'{(y1-y0)[0]:+.2f}'),
+            ("Oracle Ground Truth tau", f'{truth["tau"][unit]:+.2f}'),
+        ]
+        for label, val in expected:
+            assert any(label in card and f">{val}</div>" in card for card in cards), (rep, model_id, unit, label, val, [c for c in cards if label in c])
+    radio = at.radio(key="archetype_preset_radio")
+    radio.set_value(radio.options[1]).run()
+    assert next(w for w in at.selectbox if w.key and w.key.startswith("preset_unit_")).value == int(truth["tau"].argmax())
+    at.slider(key="policy_capacity_slider").set_value(0).run()
+    assert any("Treating 0/" in m.value for m in at.markdown)
+    assert not at.exception
+
+
+def test_corrupt_benchmark_keeps_explorer_available(monkeypatch):
+    import pandas as pd
+    original = pd.read_csv
+
+    def read_csv(path, *args, **kwargs):
+        if str(path).endswith("ihdp100_unified_results.csv"):
+            raise pd.errors.EmptyDataError("empty detailed file")
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(pd, "read_csv", read_csv)
+    at = AppTest.from_file(APP_PATH, default_timeout=60).run()
+    assert not at.exception
+    assert any("Full benchmark artifacts unavailable" in m.value for m in at.warning)
+    assert at.selectbox(key="test_unit_selector").value == 0

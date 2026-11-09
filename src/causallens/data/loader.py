@@ -9,6 +9,7 @@ import zipfile
 import numpy as np
 
 REQUIRED_KEYS = ("x", "t", "yf", "ycf", "mu0", "mu1")
+MAX_UNPACKED_BYTES = 200 * 1024 * 1024
 SPLITS = ("train", "test")
 SPLIT_SIZES = {"train": 672, "test": 75}
 FEATURE_NAMES = tuple(f"x{i:02d}" for i in range(1, 26))
@@ -28,6 +29,8 @@ def validate_archive(path):
     """
     path = Path(path)
     with zipfile.ZipFile(path) as archive:
+        if sum(entry.file_size for entry in archive.infolist()) > MAX_UNPACKED_BYTES:
+            raise ValueError("Unpacked archive exceeds the release size limit")
         bad = archive.testzip()
         if bad is not None:
             raise ValueError(f"Corrupt archive member: {bad}")
