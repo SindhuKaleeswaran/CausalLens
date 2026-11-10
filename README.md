@@ -156,3 +156,12 @@ CausalLens/
 ## ⚖️ License & Ethical Boundaries
 
 Built for the **DataNova Global Data-thon 2026**. All benchmark quantities derive from the semi-synthetic IHDP educational intervention dataset. Predictions illustrate algorithmic properties under the Neyman-Rubin potential outcomes framework and do not constitute clinical guidance or real-world medical recommendations.
+
+## Public synthetic demo
+
+The dedicated entrypoint `deploy/streamlit_app.py` uses a pinned runtime and
+independently generated synthetic examples only. No IHDP archives, row-level
+records, or benchmark results are loaded by the public app. The six-tab research
+dashboard (`app.py`) and scientific findings remain intact for authorized local
+research. See [deployment instructions](deploy/README.md) and the
+[data-permission review](docs/phase7_data_permissions.md).
